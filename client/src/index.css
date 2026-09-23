@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+@layer base {
+  body {
+    @apply bg-gd-bg text-gd-ink antialiased min-h-screen font-sans;
+  }
+}
