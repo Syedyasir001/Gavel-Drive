@@ -3,7 +3,7 @@
 
 <div align="center">
 
-
+![GavelDrive Live Car Auctions](docs/screenshots/active_auctions.png)
 
 ### *The premier curated, real-time automotive digital auction platform.*
 
@@ -114,6 +114,12 @@ To prevent frivolous bids and maintain marketplace trust, GavelDrive implements 
 - High-fidelity responsive photo galleries.
 - Real-time thumbnail synchronizer displaying exact vehicle angles with visual active state rings.
 - Dynamic reserve tags: `RESERVE MET` (Emerald), `NO RESERVE` (Violet), and `ENDING SOON` (Amber pulses).
+
+<div align="center">
+
+![Vehicle Bidding Console](docs/screenshots/vehicle_bidding.png)
+
+</div>
 
 ---
 
