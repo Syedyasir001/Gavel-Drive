@@ -3,9 +3,21 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { findSampleAuction } from '../data/sampleAuctions';
+import BiddingDepositModal from '../components/auction/BiddingDepositModal';
 
-const FALLBACK_IMAGE =
-  'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=1200&q=80';
+/**
+ * Consistent vehicle asset gallery representing angles (front, rear, interior, engine, wheel)
+ * of the same vehicle (2023 Tata Nexon Fearless Purple)
+ */
+const TATA_NEXON_GALLERY = [
+  'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/2023_Tata_Nexon_XZA%2B_front_view.jpg/1280px-2023_Tata_Nexon_XZA%2B_front_view.jpg',
+  'https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?auto=format&fit=crop&w=1200&q=80',
+  'https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&w=1200&q=80',
+  'https://images.unsplash.com/photo-1517524008697-84bbe3c3fd98?auto=format&fit=crop&w=1200&q=80',
+  'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?auto=format&fit=crop&w=1200&q=80',
+];
+
+const FALLBACK_IMAGE = TATA_NEXON_GALLERY[0];
 
 const BADGE_STYLES = {
   'RESERVE MET': 'bg-gd-reserveMet text-gd-inverse',
@@ -19,6 +31,21 @@ const BADGE_STYLES = {
 
 const formatINR = (val) =>
   new Intl.NumberFormat('en-IN').format(Number(val) || 0);
+
+/**
+ * Tiered Bid Increment System:
+ * - ₹0 to ₹5,00,000: Increment is ₹5,000
+ * - ₹5,00,001 to ₹15,00,000: Increment is ₹10,000
+ * - ₹15,00,001 to ₹50,00,000: Increment is ₹25,000
+ * - ₹50,00,001 and above: Increment is ₹50,000
+ */
+export const calculateBidIncrement = (currentBid) => {
+  const bid = Number(currentBid) || 0;
+  if (bid <= 500000) return 5000;
+  if (bid <= 1500000) return 10000;
+  if (bid <= 5000000) return 25000;
+  return 50000;
+};
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
@@ -148,10 +175,26 @@ const TimerTiles = ({ ms, label }) => {
 
   const cells = [];
   if (days > 0)
-    cells.push({ value: String(days).padStart(2, '0'), label: 'Days' });
-  cells.push({ value: pad2(hours), label: 'Hours' });
-  cells.push({ value: pad2(mins), label: 'Mins' });
-  cells.push({ value: pad2(secs), label: 'Secs' });
+    cells.push({
+      id: 'days',
+      value: String(days).padStart(2, '0'),
+      label: days === 1 ? 'Day' : 'Days',
+    });
+  cells.push({
+    id: 'hours',
+    value: pad2(hours),
+    label: hours === 1 ? 'Hour' : 'Hours',
+  });
+  cells.push({
+    id: 'mins',
+    value: pad2(mins),
+    label: mins === 1 ? 'Min' : 'Mins',
+  });
+  cells.push({
+    id: 'secs',
+    value: pad2(secs),
+    label: secs === 1 ? 'Sec' : 'Secs',
+  });
 
   return (
     <div>
@@ -163,7 +206,7 @@ const TimerTiles = ({ ms, label }) => {
       <div className="grid grid-cols-4 gap-1.5">
         {cells.map((cell) => (
           <div
-            key={cell.label}
+            key={cell.id}
             className="bg-white/5 border border-gd-lineDark rounded-md py-2 text-center"
           >
             <div className="text-lg font-bold text-gd-inverse tabular-nums leading-none">
@@ -220,6 +263,19 @@ const VehicleDetailContent = ({ id }) => {
   const [busy, setBusy] = useState(false);
   const [bidMsg, setBidMsg] = useState('');
 
+  // Refundable Bidding Entry Fee Deposit State
+  const [deposit, setDeposit] = useState(() => {
+    try {
+      const stored = localStorage.getItem(`gd_deposit_${id}`);
+      return stored ? JSON.parse(stored) : null;
+    } catch (_e) {
+      return null;
+    }
+  });
+  const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
+  const depositAmount = auction?.entryFee || 10000;
+  const hasEntryDeposit = Boolean(deposit && deposit.status === 'held');
+
   useEffect(() => {
     if (!sample) return undefined;
     const call = async () => {
@@ -239,15 +295,123 @@ const VehicleDetailContent = ({ id }) => {
     return undefined;
   }, [id, sample]);
 
+  // Sync deposit status from API if authenticated
   useEffect(() => {
+    if (!isAuthenticated || !id) return;
+    const checkDeposit = async () => {
+      try {
+        if (!String(id).startsWith('sample-')) {
+          const res = await api.get(`/bids/deposit/${id}`);
+          if (res.data?.success && res.data?.deposit) {
+            setDeposit(res.data.deposit);
+            return;
+          }
+        }
+      } catch (_e) {}
+
+      // Fallback / localStorage for sample auctions
+      try {
+        const stored = localStorage.getItem(`gd_deposit_${id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (
+            (auction?.status === 'ended' ||
+              (auction?.endTime && new Date(auction.endTime).getTime() <= Date.now())) &&
+            parsed.status === 'held'
+          ) {
+            parsed.status = 'refunded';
+            parsed.refundedAt = parsed.refundedAt || new Date().toISOString();
+            parsed.refundTransactionId = parsed.refundTransactionId || `REF_${Date.now()}_AUTO`;
+            localStorage.setItem(`gd_deposit_${id}`, JSON.stringify(parsed));
+          }
+          setDeposit(parsed);
+        }
+      } catch (_e) {}
+    };
+    checkDeposit();
+  }, [id, isAuthenticated, auction?.status]);
+
+  // Auto-refund held deposit when auction concludes or timer expires
+  useEffect(() => {
+    if (deposit && deposit.status === 'held' && auction?.status === 'ended') {
+      const doRefund = async () => {
+        try {
+          if (!String(id).startsWith('sample-')) {
+            const res = await api.post(`/bids/deposit/${id}/refund`);
+            if (res.data?.success) {
+              const refundedItem = res.data.data?.[0];
+              setDeposit((prev) => ({
+                ...prev,
+                status: 'refunded',
+                refundedAt: new Date().toISOString(),
+                refundTransactionId: refundedItem?.refundTransactionId || `REF_${Date.now()}_AUTO`,
+              }));
+              return;
+            }
+          }
+        } catch (_e) {}
+
+        const updated = {
+          ...deposit,
+          status: 'refunded',
+          refundedAt: new Date().toISOString(),
+          refundTransactionId: `REF_${Date.now()}_AUTO`,
+        };
+        setDeposit(updated);
+        try {
+          localStorage.setItem(`gd_deposit_${id}`, JSON.stringify(updated));
+        } catch (_e) {}
+      };
+      doRefund();
+    }
+  }, [auction?.status, deposit, id]);
+
+  const handleSimulateEndAuction = async () => {
+    try {
+      if (!String(id).startsWith('sample-')) {
+        await api.post(`/auctions/${id}/end`);
+      }
+    } catch (_e) {}
+
+    setAuction((prev) => ({
+      ...prev,
+      status: 'ended',
+      timeLeft: 'Ended',
+    }));
+
+    if (deposit) {
+      const updated = {
+        ...deposit,
+        status: 'refunded',
+        refundedAt: new Date().toISOString(),
+        refundTransactionId: `REF_${Date.now()}_RELEASE`,
+      };
+      setDeposit(updated);
+      try {
+        localStorage.setItem(`gd_deposit_${id}`, JSON.stringify(updated));
+      } catch (_e) {}
+    }
+  };
+
+  useEffect(() => {
+    setActiveImage(0);
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [id]);
 
   const remaining = useCountdown(auction);
 
-  const images = auction?.car?.images?.length
-    ? auction.car.images
-    : [FALLBACK_IMAGE];
+  const vehicle = auction?.car || {};
+  const images = useMemo(() => {
+    const rawImages = (vehicle.images || auction?.images || [])
+      .map((img) => (typeof img === 'string' ? img : img?.url))
+      .filter(Boolean);
+
+    if (rawImages.length > 0) {
+      return rawImages;
+    }
+    return [FALLBACK_IMAGE];
+  }, [auction, vehicle.images]);
+
   const specs = useMemo(() => (auction ? buildSpecs(auction) : []), [auction]);
   const conditionChips = useMemo(
     () => (auction ? buildConditionChips(auction) : []),
@@ -257,10 +421,13 @@ const VehicleDetailContent = ({ id }) => {
   const startPrice = Number(auction?.startPrice) || 0;
   const bidHistory = auction?.bidHistory || [];
 
+  const bidIncrement = calculateBidIncrement(currentBid);
   const suggestedBid = Math.max(
-    Math.ceil((currentBid + 1) / 50000) * 50000,
-    currentBid + 50000
+    Math.ceil((currentBid + 1) / bidIncrement) * bidIncrement,
+    currentBid + bidIncrement
   );
+  const quickBid1 = bidIncrement;
+  const quickBid3 = bidIncrement * 3;
 
   const handleWatchToggle = () => {
     if (!isAuthenticated) {
@@ -275,19 +442,81 @@ const VehicleDetailContent = ({ id }) => {
       navigate('/login');
       return;
     }
-    setBidAmount(String(suggestedBid));
+    if (!hasEntryDeposit) {
+      setIsDepositModalOpen(true);
+      return;
+    }
+    setBidAmount(suggestedBid);
     setBidOpen(true);
   };
 
-  const placeBid = (e) => {
+  const handleBidInputChange = (e) => {
+    const digitsOnly = e.target.value.replace(/\D/g, '');
+    if (!digitsOnly) {
+      setBidAmount('');
+      return;
+    }
+    const parsed = parseInt(digitsOnly, 10);
+    setBidAmount(isNaN(parsed) ? '' : parsed);
+  };
+
+  const handleQuickBid = (inc) => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    if (!hasEntryDeposit) {
+      setIsDepositModalOpen(true);
+      return;
+    }
+    const nextTarget = Math.max(currentBid + inc, suggestedBid);
+    setBidAmount(nextTarget);
+    setBidOpen(true);
+    setBidMsg('');
+  };
+
+  const formattedBidDisplay =
+    bidAmount !== '' && bidAmount !== null && !isNaN(bidAmount)
+      ? new Intl.NumberFormat('en-IN').format(bidAmount)
+      : '';
+
+  const placeBid = async (e) => {
     e.preventDefault();
+    if (!hasEntryDeposit) {
+      setIsDepositModalOpen(true);
+      return;
+    }
     const amount = Number(bidAmount);
-    if (!amount || amount <= currentBid) {
-      setBidMsg('Enter an amount above the current bid.');
+    if (!amount || amount < suggestedBid) {
+      setBidMsg(
+        `Minimum next bid is ₹${formatINR(suggestedBid)} (minimum increment of ₹${formatINR(bidIncrement)}).`
+      );
       return;
     }
     setBusy(true);
     setBidMsg('');
+
+    try {
+      if (auction?._id && !String(auction._id).startsWith('sample-')) {
+        await api.post('/bids', {
+          auctionId: auction._id,
+          amount,
+        });
+      }
+    } catch (err) {
+      if (err.response?.data?.code === 'ENTRY_FEE_REQUIRED') {
+        setBusy(false);
+        setIsDepositModalOpen(true);
+        return;
+      }
+      const errMsg = err.response?.data?.message;
+      if (errMsg) {
+        setBidMsg(errMsg);
+        setBusy(false);
+        return;
+      }
+    }
+
     window.setTimeout(() => {
       setAuction((prev) => ({
         ...prev,
@@ -299,11 +528,10 @@ const VehicleDetailContent = ({ id }) => {
           ...(prev.bidHistory || []),
         ],
       }));
-      setBidOpen(false);
       setBidAmount('');
       setBusy(false);
       setBidMsg('Your bid is now the leading bid.');
-    }, 700);
+    }, 500);
   };
 
   if (!auction) {
@@ -354,7 +582,7 @@ const VehicleDetailContent = ({ id }) => {
 
   return (
     <div className="min-h-screen bg-gd-bg pb-16">
-      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
         {/* Breadcrumb */}
         <nav className="pt-8 pb-6 flex items-center justify-between gap-4">
           <Link
@@ -372,55 +600,54 @@ const VehicleDetailContent = ({ id }) => {
           </span>
         </nav>
 
-        {/* Title row */}
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-8">
-          <div className="min-w-0">
+        {/* Title row with anchored Save button */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between gap-4">
             <h1 className="text-2xl sm:text-3xl font-bold text-gd-ink tracking-tight break-words">
               {auction.car?.title || 'Featured Vehicle'}
             </h1>
-            <p className="mt-2 text-label font-medium text-gd-muted uppercase">
-              {auction.make || auction.car?.make || 'Auction'} · {auction.location}
-            </p>
-            {conditionChips.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {conditionChips.map((chip) => (
-                  <span
-                    key={chip}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill bg-gd-surface border border-gd-line text-xs font-medium text-gd-ink"
-                  >
-                    <svg className="w-3.5 h-3.5 text-gd-ghost" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    {chip}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={handleWatchToggle}
-            className={`shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-md border text-sm font-medium transition-all duration-150 cursor-pointer self-start ${
-              saved
-                ? 'bg-gd-error/5 border-gd-error/30 text-gd-error'
-                : 'bg-gd-sidebar border-gd-line text-gd-muted hover:text-gd-ink hover:border-gd-ghost'
-            }`}
-          >
-            <svg
-              className={`w-4 h-4 ${saved ? 'fill-current' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
+            <button
+              onClick={handleWatchToggle}
+              className={`shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-md border text-sm font-medium transition-all duration-150 cursor-pointer ${
+                saved
+                  ? 'bg-gd-error/5 border-gd-error/30 text-gd-error'
+                  : 'bg-gd-sidebar border-gd-line text-gd-muted hover:text-gd-ink hover:border-gd-ghost'
+              }`}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-              />
-            </svg>
-            {saved ? 'Saved' : 'Save'}
-          </button>
+              <svg
+                className={`w-4 h-4 ${saved ? 'fill-current' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                />
+              </svg>
+              {saved ? 'Saved' : 'Save'}
+            </button>
+          </div>
+          <p className="mt-2 text-label font-medium text-gd-muted uppercase">
+            {auction.make || auction.car?.make || 'Auction'}
+          </p>
+          {conditionChips.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {conditionChips.map((chip) => (
+                <span
+                  key={chip}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill bg-gd-surface border border-gd-line text-xs font-medium text-gd-ink"
+                >
+                  <svg className="w-3.5 h-3.5 text-gd-ghost" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {chip}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Main grid */}
@@ -432,62 +659,51 @@ const VehicleDetailContent = ({ id }) => {
               <div className="relative bg-gd-card rounded-md overflow-hidden">
                 <div className="aspect-[16/10] relative">
                   <img
-                    src={images[activeImage] || FALLBACK_IMAGE}
+                    src={images[activeImage] || images[0] || FALLBACK_IMAGE}
                     alt={auction.car?.title || 'Vehicle'}
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/15 pointer-events-none" />
-                  <span className={`absolute top-3 left-3 px-2.5 py-1 rounded-pill text-eyebrow font-bold uppercase tracking-wide ${badgeCls}`}>
-                    {auction.badge}
-                  </span>
                   <span className="absolute top-3 right-3 px-2.5 py-1 rounded-pill bg-black/50 text-gd-inverse text-eyebrow font-bold uppercase tracking-wide backdrop-blur-sm">
-                    {activeImage + 1} / {images.length}
+                    {Math.min(activeImage + 1, images.length)} / {images.length}
                   </span>
-                  <div className="absolute bottom-3 left-3 flex flex-wrap gap-2">
-                    {conditionChips.slice(0, 2).map((chip) => (
-                      <span key={chip} className="px-2.5 py-1 rounded-pill bg-black/55 text-gd-inverse text-eyebrow font-medium uppercase tracking-wide backdrop-blur-sm">
-                        {chip}
-                      </span>
-                    ))}
-                  </div>
                 </div>
               </div>
 
-              {images.length > 1 && (
-                <div className="mt-3 grid grid-cols-6 gap-3">
-                  {images.map((img, i) => (
-                    <button
-                      key={`${img}-${i}`}
-                      onClick={() => setActiveImage(i)}
-                      className={`aspect-[16/10] rounded-md overflow-hidden border-2 transition-all duration-150 cursor-pointer ${
-                        i === activeImage
-                          ? 'border-gd-cta'
-                          : 'border-transparent hover:border-gd-line'
-                      }`}
-                      aria-label={`View image ${i + 1}`}
-                    >
-                      <img
-                        src={img}
-                        alt=""
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Gallery thumbnails grid */}
+              <div className="mt-3 grid grid-cols-5 gap-2.5 sm:gap-3">
+                {images.map((img, i) => (
+                  <button
+                    key={`${img}-${i}`}
+                    onClick={() => setActiveImage(i)}
+                    className={`aspect-[16/10] rounded-md overflow-hidden border-2 transition-all duration-150 cursor-pointer ${
+                      i === activeImage
+                        ? 'border-gd-cta ring-1 ring-gd-cta'
+                        : 'border-transparent opacity-75 hover:opacity-100 hover:border-gd-line'
+                    }`}
+                    aria-label={`View image ${i + 1}`}
+                  >
+                    <img
+                      src={img}
+                      alt={`Vehicle thumbnail ${i + 1}`}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </button>
+                ))}
+              </div>
             </section>
 
-            {/* Specifications */}
+            {/* Specifications - High Contrast WCAG labels & subtle borders */}
             <section>
               <SectionHeading eyebrow="Details" title="Key Specifications" />
-              <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-px bg-gd-line rounded-md overflow-hidden border border-gd-line">
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-px bg-gray-200 rounded-md overflow-hidden border border-gray-200">
                 {specs.map((spec) => (
-                  <div key={spec.label} className="bg-gd-sidebar px-4 py-4">
-                    <p className="text-eyebrow font-medium text-gd-ghost uppercase">
+                  <div key={spec.label} className="bg-white px-4 py-4">
+                    <p className="text-eyebrow font-semibold text-gray-500 uppercase tracking-wider">
                       {spec.label}
                     </p>
-                    <p className="mt-1.5 text-sm font-semi text-gd-ink break-words">
+                    <p className="mt-1.5 text-sm font-bold text-gd-ink break-words">
                       {spec.value}
                     </p>
                   </div>
@@ -532,15 +748,25 @@ const VehicleDetailContent = ({ id }) => {
                 {bidHistory.length > 0 ? (
                   <ul className="divide-y divide-gd-line">
                     {bidHistory.slice(0, 8).map((bid, i) => {
-                      const leading = i === 0 && auction.status !== 'ended';
+                      const isLeading = i === 0 && auction.status !== 'ended';
                       const won = bid.winner || (i === 0 && auction.status === 'ended');
                       return (
                         <li
                           key={`${bid.bidder}-${i}`}
-                          className="px-5 py-3.5 flex items-center justify-between gap-4"
+                          className={`px-5 py-3.5 flex items-center justify-between gap-4 transition-colors ${
+                            isLeading
+                              ? 'bg-green-50/70 border-l-4 border-l-gd-success'
+                              : won
+                                ? 'bg-green-50/40'
+                                : ''
+                          }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-8 h-8 rounded-md bg-gd-cta/5 text-gd-cta font-bold text-xs flex items-center justify-center uppercase shrink-0">
+                            <div className={`w-8 h-8 rounded-md font-bold text-xs flex items-center justify-center uppercase shrink-0 ${
+                              isLeading || won
+                                ? 'bg-gd-success/15 text-gd-success'
+                                : 'bg-gd-cta/5 text-gd-cta'
+                            }`}>
                               {bid.bidder.slice(0, 1)}
                             </div>
                             <div className="min-w-0">
@@ -558,10 +784,12 @@ const VehicleDetailContent = ({ id }) => {
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-sm font-bold text-gd-ink">
+                            <p className={`text-sm font-bold ${
+                              isLeading || won ? 'text-gd-success' : 'text-gd-ink'
+                            }`}>
                               ₹{formatINR(bid.amount)}
                             </p>
-                            {leading && (
+                            {isLeading && (
                               <p className="text-eyebrow font-bold text-gd-success uppercase">
                                 Leading
                               </p>
@@ -614,10 +842,10 @@ const VehicleDetailContent = ({ id }) => {
             </section>
           </div>
 
-          {/* Right column — bid panel */}
-          <aside className="lg:sticky lg:top-24 space-y-4">
-            {/* Dark auction summary */}
-            <div className="bg-gd-card rounded-md p-5 space-y-5">
+          {/* Right column — Unified Sticky Bidding Sidebar */}
+          <aside className="lg:sticky lg:top-20 space-y-4 self-start">
+            {/* Unified Dark auction summary & bidding card */}
+            <div className="sticky top-6 lg:top-20 bg-gd-card rounded-md p-5 space-y-5 shadow-card z-10">
               <div className="flex items-center justify-between gap-4">
                 <span className={`px-2.5 py-1 rounded-pill text-eyebrow font-bold uppercase tracking-wide ${badgeCls}`}>
                   {auction.badge}
@@ -637,6 +865,28 @@ const VehicleDetailContent = ({ id }) => {
                 <p className="mt-1 text-2xl font-bold text-gd-inverse tabular-nums tracking-tight">
                   ₹{formatINR(currentBid)}
                 </p>
+                {/* Quick bid buttons below Current Bid */}
+                {buttonActive && (
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <span className="text-eyebrow font-medium text-gd-ghost uppercase">
+                      Quick:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickBid(quickBid1)}
+                      className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-gd-lineDark text-xs font-semibold text-gd-inverse transition-colors duration-150 cursor-pointer"
+                    >
+                      +₹{formatINR(quickBid1)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickBid(quickBid3)}
+                      className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-gd-lineDark text-xs font-semibold text-gd-inverse transition-colors duration-150 cursor-pointer"
+                    >
+                      +₹{formatINR(quickBid3)}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {remaining !== null && buttonActive ? (
@@ -678,77 +928,191 @@ const VehicleDetailContent = ({ id }) => {
                   </span>
                 </div>
               )}
-            </div>
 
-            {/* Bid / CTA panel */}
-            <div className="bg-gd-sidebar border border-gd-line rounded-md p-5 shadow-card">
-              {buttonActive ? (
-                bidOpen ? (
-                  <form onSubmit={placeBid} className="space-y-3">
-                    <label className="block">
-                      <span className="text-eyebrow font-medium text-gd-ghost uppercase">
-                        Your bid (₹)
-                      </span>
-                      <input
-                        type="number"
-                        min={suggestedBid}
-                        step={50000}
-                        value={bidAmount}
-                        onChange={(e) => setBidAmount(e.target.value)}
-                        className="mt-1.5 w-full rounded-md border border-gd-line bg-gd-surface px-4 py-2.5 text-base font-medium text-gd-ink focus:outline-none focus:border-gd-cta focus:ring-1 focus:ring-gd-cta tabular-nums"
-                        placeholder={String(suggestedBid)}
-                      />
-                    </label>
-                    <p className="text-xs text-gd-muted">
-                      Minimum next bid ₹{formatINR(suggestedBid)}
-                    </p>
-                    {bidMsg && (
-                      <p className="text-xs font-medium text-gd-success">{bidMsg}</p>
-                    )}
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      className="w-full bg-gd-cta hover:bg-gd-ctaHover text-gd-inverse text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 disabled:opacity-60 cursor-pointer"
-                    >
-                      {busy ? 'Placing bid…' : 'Confirm Bid'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBidOpen(false)}
-                      disabled={busy}
-                      className="w-full text-xs font-medium text-gd-muted hover:text-gd-ink py-1 transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </form>
+              {/* Bidding Actions unified directly inside the dark card */}
+              <div className="pt-4 border-t border-gd-lineDark">
+                {buttonActive ? (
+                  !hasEntryDeposit ? (
+                    <div className="space-y-3">
+                      <div className="rounded-md bg-white/5 border border-gd-lineDark p-3.5 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1.5 text-eyebrow font-bold text-amber-400 uppercase tracking-wider">
+                            <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
+                            Entry Deposit Required
+                          </span>
+                          <span className="text-eyebrow font-bold text-emerald-400 uppercase">
+                            100% Refundable
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-300 leading-relaxed">
+                          A refundable entry fee deposit of <strong className="text-white">₹{formatINR(depositAmount)}</strong> is required to enter this live bidding room.
+                        </p>
+                        <div className="flex items-center gap-2 text-eyebrow text-emerald-300 bg-emerald-950/40 border border-emerald-500/30 rounded px-2.5 py-1.5 font-medium">
+                          <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                          </svg>
+                          <span>When this auction ends, this payment is automatically refunded back to your card.</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isAuthenticated) {
+                            navigate('/login');
+                            return;
+                          }
+                          setIsDepositModalOpen(true);
+                        }}
+                        className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                      >
+                        <svg className="w-4 h-4 text-gd-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        Pay ₹{formatINR(depositAmount)} Deposit &amp; Unlock Bidding
+                      </button>
+                      <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
+                        Held in escrow · Auto-refunded on auction close
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {/* Active deposit indicator */}
+                      <div className="rounded-md bg-emerald-950/40 border border-emerald-500/40 px-3 py-2 flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 font-bold text-emerald-400">
+                          <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                          </svg>
+                          Bidder Deposit Active (₹{formatINR(deposit.amount || depositAmount)} Held)
+                        </span>
+                        <span className="text-eyebrow text-gray-400 uppercase font-medium">
+                          Refunds on close
+                        </span>
+                      </div>
+
+                      {bidOpen ? (
+                        <form onSubmit={placeBid} className="space-y-3">
+                          <label className="block">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-eyebrow font-medium text-gray-400 uppercase">
+                                Your bid (₹)
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickBid(quickBid1)}
+                                  className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 border border-gd-lineDark text-eyebrow font-bold text-white transition-colors cursor-pointer"
+                                >
+                                  +₹{formatINR(quickBid1)}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickBid(quickBid3)}
+                                  className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 border border-gd-lineDark text-eyebrow font-bold text-white transition-colors cursor-pointer"
+                                >
+                                  +₹{formatINR(quickBid3)}
+                                </button>
+                              </div>
+                            </div>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={formattedBidDisplay}
+                              onChange={handleBidInputChange}
+                              placeholder={formatINR(suggestedBid)}
+                              className="w-full rounded-md border border-gray-300 shadow-inner bg-white px-4 py-2.5 text-base font-medium text-gd-ink focus:outline-none focus:ring-2 focus:ring-white tabular-nums"
+                            />
+                          </label>
+                          <div className="flex items-center justify-between text-xs text-gray-400">
+                            <span>Minimum next bid</span>
+                            <span className="font-semibold text-white">₹{formatINR(suggestedBid)}</span>
+                          </div>
+                          {bidMsg && (
+                            <p
+                              className={`text-xs font-medium ${
+                                bidMsg.includes('leading bid')
+                                  ? 'text-gd-success'
+                                  : 'text-gd-endingText'
+                              }`}
+                            >
+                              {bidMsg}
+                            </p>
+                          )}
+                          <button
+                            type="submit"
+                            disabled={busy}
+                            className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 disabled:opacity-60 cursor-pointer shadow-sm"
+                          >
+                            {busy ? 'Placing bid…' : 'Confirm Bid'}
+                          </button>
+                          <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
+                            Bid increments of ₹{formatINR(bidIncrement)}
+                          </p>
+                        </form>
+                      ) : (
+                        <div className="space-y-3">
+                          <button
+                            onClick={openBid}
+                            className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                          >
+                            <svg className="w-4 h-4 text-gd-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            Place Bid · ₹{formatINR(suggestedBid)}
+                          </button>
+                          <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
+                            Bid increments of ₹{formatINR(bidIncrement)}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Demo/test trigger to close auction and test automatic deposit refund */}
+                      <button
+                        type="button"
+                        onClick={handleSimulateEndAuction}
+                        className="w-full text-center text-eyebrow text-gray-400 hover:text-white py-1 transition-colors underline cursor-pointer"
+                        title="Simulate auction completion to trigger immediate deposit refund"
+                      >
+                        Simulate Auction End &amp; Trigger Deposit Refund
+                      </button>
+                    </div>
+                  )
                 ) : (
                   <div className="space-y-3">
-                    <button
-                      onClick={openBid}
-                      className="w-full bg-gd-cta hover:bg-gd-ctaHover text-gd-inverse text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 inline-flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      Place Bid · ₹{formatINR(suggestedBid)}
-                    </button>
-                    <p className="text-center text-eyebrow font-medium text-gd-ghost uppercase">
-                      Bid increments of ₹50,000
-                    </p>
+                    {/* Refund banner when auction is ended and deposit was placed */}
+                    {deposit && (
+                      <div className="rounded-md bg-emerald-950/40 border border-emerald-500/40 p-4 space-y-2">
+                        <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                          <svg className="w-5 h-5 text-emerald-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                          </svg>
+                          <span>₹{formatINR(deposit.amount || depositAmount)} Deposit Refunded</span>
+                        </div>
+                        <p className="text-xs text-emerald-100/90 leading-relaxed">
+                          This auction has concluded. Your ₹{formatINR(deposit.amount || depositAmount)} bidding entry fee has been automatically refunded to your {deposit.paymentMethod?.brand || 'card'} ending in {deposit.paymentMethod?.last4 || '4092'}.
+                        </p>
+                        <div className="pt-1.5 border-t border-emerald-500/20 flex items-center justify-between text-eyebrow text-emerald-300 uppercase tracking-wider font-mono">
+                          <span>Ref: {deposit.refundTransactionId || 'REF_AUTO_RELEASE'}</span>
+                          <span className="text-emerald-400 font-bold">Processed</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <p className="text-eyebrow font-bold text-gray-400 uppercase">
+                        {auction.status === 'upcoming' ? 'Bidding opens soon' : 'Bidding closed'}
+                      </p>
+                      <p className="mt-1 text-sm text-gray-400">
+                        {auction.status === 'upcoming'
+                          ? 'Register now to be ready when the gavel drops.'
+                          : 'This vehicle has been awarded to the winning bidder.'}
+                      </p>
+                    </div>
                   </div>
-                )
-              ) : (
-                <div>
-                  <p className="text-eyebrow font-bold text-gd-muted uppercase">
-                    {auction.status === 'upcoming' ? 'Bidding opens soon' : 'Bidding closed'}
-                  </p>
-                  <p className="mt-1 text-sm text-gd-muted">
-                    {auction.status === 'upcoming'
-                      ? 'Register now to be ready when the gavel drops.'
-                      : 'This vehicle has been awarded to the winning bidder.'}
-                  </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Seller card */}
@@ -798,6 +1162,19 @@ const VehicleDetailContent = ({ id }) => {
           </aside>
         </div>
       </div>
+
+      {/* Bidding Entry Deposit Modal */}
+      <BiddingDepositModal
+        isOpen={isDepositModalOpen}
+        onClose={() => setIsDepositModalOpen(false)}
+        onSuccess={(newDep) => {
+          setDeposit(newDep);
+          setBidOpen(true);
+        }}
+        auction={auction}
+        user={user}
+        depositAmount={depositAmount}
+      />
     </div>
   );
 };

@@ -43,7 +43,7 @@ const Navbar = () => {
                 <div className="flex flex-col text-left">
                   <span className="text-xs font-semibold text-gd-ink">{user?.name}</span>
                   <span className="text-eyebrow text-gd-muted uppercase tracking-widest">
-                    {user?.role || 'Bidder'}
+                    Member
                   </span>
                 </div>
               </Link>

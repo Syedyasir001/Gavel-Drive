@@ -1,105 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import AuctionCard from '../components/auction/AuctionCard';
-
-const SAMPLE_AUCTIONS = [
-  {
-    _id: 'sample-1',
-    status: 'live',
-    startPrice: 1500000,
-    currentBid: 1850000,
-    bidCount: 31,
-    badge: 'RESERVE MET',
-    timeLeft: '03h 14m',
-    car: {
-      title: '2023 Mahindra XUV700 AX7',
-      specs: 'MIDNIGHT BLACK • 6-SPEED AUTOMATIC • AWD',
-      details: '12,500 KM • Single Owner • Mumbai',
-      images: ['https://upload.wikimedia.org/wikipedia/commons/b/ba/2021_Mahindra_XUV700_2.2_AX7_%28India%29_front_view.png'],
-    },
-  },
-  {
-    _id: 'sample-2',
-    status: 'live',
-    startPrice: 900000,
-    currentBid: 1180000,
-    bidCount: 24,
-    badge: 'NO RESERVE',
-    timeLeft: '08h 45m',
-    car: {
-      title: '2023 Tata Nexon Fearless',
-      specs: 'FEARLESS PURPLE • 7-SPEED DCA • FWD',
-      details: '8,400 KM • Clean Title • Pune',
-      images: ['https://upload.wikimedia.org/wikipedia/commons/e/e5/2023_Tata_Nexon_XZA%2B_front_view.jpg'],
-    },
-  },
-  {
-    _id: 'sample-3',
-    status: 'live',
-    startPrice: 3500000,
-    currentBid: 4250000,
-    bidCount: 52,
-    badge: 'ENDING SOON',
-    timeLeft: '01h 10m',
-    car: {
-      title: '2022 Toyota Fortuner Legender',
-      specs: 'PEARL WHITE • 6-SPEED AUTOMATIC • 4X4',
-      details: '18,200 KM • 1st Owner • Bangalore',
-      images: ['https://upload.wikimedia.org/wikipedia/commons/2/23/2021_Toyota_Fortuner_SRZ_2.7_4x2_%28Indonesia%29_front_view_02.jpg'],
-    },
-  },
-  {
-    _id: 'sample-4',
-    status: 'live',
-    startPrice: 1000000,
-    currentBid: 1420000,
-    bidCount: 18,
-    badge: 'DRIVER GRADE',
-    timeLeft: '1d 04h',
-    car: {
-      title: '2021 Hyundai Creta SX(O)',
-      specs: 'PHANTOM BLACK • IVT • FWD',
-      details: '28,400 KM • Full Service History • Delhi',
-      images: ['https://upload.wikimedia.org/wikipedia/commons/2/21/2024_Hyundai_Creta_1.5_MPi_SX%28O%29_%28India%29_front_view.png'],
-    },
-  },
-  {
-    _id: 'sample-5',
-    status: 'live',
-    startPrice: 1200000,
-    currentBid: 1650000,
-    bidCount: 44,
-    badge: 'RESERVE MET',
-    timeLeft: '05h 22m',
-    car: {
-      title: '2022 Kia Seltos GTX Plus',
-      specs: 'INTENSE RED • 7-SPEED DCT • FWD',
-      details: '22,100 KM • Extended Warranty • Chennai',
-      images: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6c/Kia_Seltos_SP2_PE_Snow_White_Pearl_%2817%29_%28cropped%29.jpg/960px-Kia_Seltos_SP2_PE_Snow_White_Pearl_%2817%29_%28cropped%29.jpg'],
-    },
-  },
-  {
-    _id: 'sample-6',
-    status: 'live',
-    startPrice: 1500000,
-    currentBid: 1790000,
-    bidCount: 36,
-    badge: 'NO RESERVE',
-    timeLeft: '04h 02m',
-    car: {
-      title: '2023 Volkswagen Virtus GT Plus',
-      specs: 'WILD CHERRY RED • 7-SPEED DSG • FWD',
-      details: '9,800 KM • Enthusiast Owned • Hyderabad',
-      images: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9e/2022_Volkswagen_Virtus_1.5_GT_%28India%29_front_view_02.png/960px-2022_Volkswagen_Virtus_1.5_GT_%28India%29_front_view_02.png'],
-    },
-  },
-];
+import Pagination from '../components/common/Pagination';
+import { SAMPLE_AUCTIONS } from '../data/sampleAuctions';
 
 const Home = () => {
   const [auctions, setAuctions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 6;
+  const listingsRef = useRef(null);
 
   useEffect(() => {
     const fetchAuctions = async () => {
@@ -130,6 +42,30 @@ const Home = () => {
 
     fetchAuctions();
   }, [activeFilter]);
+
+  // Reset to page 1 whenever filter changes
+  const handleFilterChange = (status) => {
+    setActiveFilter(status);
+    setCurrentPage(1);
+  };
+
+  // Pagination calculation
+  const totalItems = auctions.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedAuctions = auctions.slice(startIndex, startIndex + pageSize);
+
+  // Smooth scroll handler on page switch
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    if (listingsRef.current) {
+      const topOffset = listingsRef.current.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({
+        top: Math.max(0, topOffset),
+        behavior: 'smooth',
+      });
+    }
+  };
 
   return (
     <main className="min-h-[calc(100vh-4rem)] pb-20">
@@ -193,7 +129,7 @@ const Home = () => {
       </section>
 
       {/* Auction Listings Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-2">
+      <section ref={listingsRef} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-2">
         {/* Filter Controls */}
         <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4">
           <div>
@@ -206,7 +142,7 @@ const Home = () => {
             {['all', 'live', 'upcoming', 'ended'].map((status) => (
               <button
                 key={status}
-                onClick={() => setActiveFilter(status)}
+                onClick={() => handleFilterChange(status)}
                 className={`px-4 py-1.5 rounded-md text-xs font-semibold capitalize transition-all cursor-pointer ${
                   activeFilter === status
                     ? 'bg-gd-cta text-gd-inverse shadow-none'
@@ -219,46 +155,41 @@ const Home = () => {
           </div>
         </div>
 
-        {/* Grid */}
-        <div className="mt-8">
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-80 rounded-md bg-gd-surface border border-gd-line animate-pulse" />
-            ))}
-          </div>
-        ) : auctions.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {auctions.map((auction) => (
-              <AuctionCard key={auction._id} auction={auction} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-20 rounded-md border border-dashed border-gd-line bg-gd-surface/50">
-            <p className="text-gd-muted text-sm">No auctions match the selected filter.</p>
-          </div>
-        )}
+        {/* Grid with animation keyframe on page switch */}
+        <div className="mt-8 min-h-[500px]">
+          {loading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="h-80 rounded-md bg-gd-surface border border-gd-line animate-pulse" />
+              ))}
+            </div>
+          ) : paginatedAuctions.length > 0 ? (
+            <div
+              key={`${activeFilter}-page-${currentPage}`}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-slide-up"
+            >
+              {paginatedAuctions.map((auction) => (
+                <AuctionCard key={auction._id} auction={auction} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-20 rounded-md border border-dashed border-gd-line bg-gd-surface/50">
+              <p className="text-gd-muted text-sm">No auctions match the selected filter.</p>
+            </div>
+          )}
         </div>
 
-        {/* Pagination */}
-        <div className="mt-12 mb-8 bg-white border border-slate-200 rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
-          <div className="text-sm text-slate-500 font-medium">
-            Showing <span className="font-bold text-slate-700">1</span> - <span className="font-bold text-slate-700">24</span> of <span className="font-bold text-slate-700">148</span> vehicles
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button className="w-8 h-8 rounded bg-[#1a273b] text-white text-xs font-bold flex items-center justify-center">1</button>
-            <button className="w-8 h-8 rounded bg-slate-50 hover:bg-slate-100 text-slate-500 text-xs font-bold flex items-center justify-center transition-colors">2</button>
-            <button className="w-8 h-8 rounded bg-slate-50 hover:bg-slate-100 text-slate-500 text-xs font-bold flex items-center justify-center transition-colors">3</button>
-            <span className="w-8 h-8 flex items-center justify-center text-slate-400 text-xs tracking-widest">...</span>
-            <button className="w-8 h-8 rounded bg-slate-50 hover:bg-slate-100 text-slate-500 text-xs font-bold flex items-center justify-center transition-colors">7</button>
-            <button className="px-3 h-8 rounded border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-bold flex items-center gap-1 transition-colors ml-1">
-              Next Page
-              <svg className="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        {/* Working Animated Pagination Component */}
+        {totalItems > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            itemLabel="vehicles"
+            onPageChange={handlePageChange}
+          />
+        )}
       </section>
     </main>
   );

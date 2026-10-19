@@ -55,4 +55,42 @@ auctionSchema.pre('validate', function (next) {
   next();
 });
 
+const { calculateBidIncrement, calculateMinimumNextBid } = require('../utils/bidTiers');
+
+// Instance methods for tiered increment calculations
+auctionSchema.methods.calculateBidIncrement = function () {
+  const current = Number(this.currentBid ?? this.startPrice ?? 0);
+  return calculateBidIncrement(current);
+};
+
+auctionSchema.methods.calculateMinimumNextBid = function () {
+  const current = Number(this.currentBid ?? this.startPrice ?? 0);
+  return calculateMinimumNextBid(current);
+};
+
+auctionSchema.methods.validateBidAmount = function (amount) {
+  const current = Number(this.currentBid ?? this.startPrice ?? 0);
+  const increment = calculateBidIncrement(current);
+  const minRequired = calculateMinimumNextBid(current);
+  const numAmount = Number(amount);
+
+  if (!numAmount || isNaN(numAmount)) {
+    return { valid: false, message: 'Bid amount must be a valid number' };
+  }
+  if (numAmount < minRequired) {
+    return {
+      valid: false,
+      message: `Bid amount must be at least ₹${minRequired.toLocaleString('en-IN')} (minimum increment of ₹${increment.toLocaleString('en-IN')})`,
+      currentBid: current,
+      requiredIncrement: increment,
+      minimumNextBid: minRequired,
+    };
+  }
+  return { valid: true, minimumNextBid: minRequired, increment };
+};
+
+// Static methods
+auctionSchema.statics.calculateBidIncrement = calculateBidIncrement;
+auctionSchema.statics.calculateMinimumNextBid = calculateMinimumNextBid;
+
 module.exports = mongoose.model('Auction', auctionSchema);

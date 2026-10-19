@@ -33,9 +33,13 @@ colors: {
     line:       '#E5E5E5',
     lineDark:   '#2A2E3F', // dividers inside dark cards
 
-    // Primary action
-    cta:        '#0D0F1A',
-    ctaHover:   '#2A2E3F',
+    // Primary action & brand colors
+    cta:           '#0D0F1A',
+    ctaHover:      '#2A2E3F',
+    primary:       '#1E40AF', // refined royal/prestige automotive blue
+    primaryHover:  '#1D4ED8',
+    primaryLight:  '#EFF6FF',
+    primaryBorder: '#BFDBFE',
 
     // Status badges
     reserveMet: '#1A7A4A', // green — reserve price met

@@ -8,7 +8,6 @@ const Register = () => {
     name: '',
     email: '',
     password: '',
-    role: 'bidder',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -105,34 +104,11 @@ const Register = () => {
             />
           </div>
 
-          <div>
-            <label className="block text-eyebrow text-gd-muted uppercase mb-1.5">
-              Account Role
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setFormData((prev) => ({ ...prev, role: 'bidder' }))}
-                className={`py-2.5 rounded-sm text-xs font-bold border transition-all cursor-pointer ${
-                  formData.role === 'bidder'
-                    ? 'bg-gd-cta/10 border-gd-cta text-gd-cta'
-                    : 'bg-gd-bg border-gd-line text-gd-muted hover:text-gd-ink'
-                }`}
-              >
-                Bidder
-              </button>
-              <button
-                type="button"
-                onClick={() => setFormData((prev) => ({ ...prev, role: 'seller' }))}
-                className={`py-2.5 rounded-sm text-xs font-bold border transition-all cursor-pointer ${
-                  formData.role === 'seller'
-                    ? 'bg-gd-cta/10 border-gd-cta text-gd-cta'
-                    : 'bg-gd-bg border-gd-line text-gd-muted hover:text-gd-ink'
-                }`}
-              >
-                Seller
-              </button>
-            </div>
+          <div className="p-3 rounded-sm bg-gd-bg border border-gd-line text-xs text-gd-muted flex items-start gap-2.5">
+            <svg className="w-4 h-4 text-gd-cta shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+            <span>All accounts include full capabilities to both <strong>place bids</strong> and <strong>list vehicles</strong> for auction.</span>
           </div>
 
           <button

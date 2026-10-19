@@ -15,6 +15,13 @@ export const AuthProvider = ({ children }) => {
 
   const [loading, setLoading] = useState(true);
 
+  const logout = () => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  };
+
   // Sync profile when token is present on startup
   useEffect(() => {
     const initAuth = async () => {
@@ -46,11 +53,26 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const updateUser = (updatedData) => {
+    setUser((prev) => {
+      const merged = { ...prev, ...updatedData };
+      localStorage.setItem('user', JSON.stringify(merged));
+      return merged;
+    });
+  };
+
+  const refreshUser = async () => {
+    try {
+      const res = await api.get('/auth/profile');
+      if (res.data?.success && res.data?.user) {
+        setUser(res.data.user);
+        localStorage.setItem('user', JSON.stringify(res.data.user));
+        return res.data.user;
+      }
+    } catch (err) {
+      console.error('Failed to refresh user:', err);
+    }
+    return null;
   };
 
   const value = {
@@ -58,6 +80,8 @@ export const AuthProvider = ({ children }) => {
     token,
     login,
     logout,
+    updateUser,
+    refreshUser,
     loading,
     isAuthenticated: Boolean(token),
   };

@@ -5,6 +5,7 @@ const {
   getAuctionById,
   createAuction,
   updateAuction,
+  endAuction,
   cancelAuction,
 } = require('../controllers/auction.controller');
 
@@ -24,8 +25,13 @@ router.post('/', createAuction);
 // @desc    Update auction details
 router.put('/:id', updateAuction);
 
+// @route   POST /api/auctions/:id/end
+// @desc    End an auction and refund all held deposits
+router.post('/:id/end', endAuction);
+
 // @route   DELETE /api/auctions/:id
 // @desc    Cancel an auction
 router.delete('/:id', cancelAuction);
 
 module.exports = router;
+
