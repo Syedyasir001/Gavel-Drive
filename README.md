@@ -1,5 +1,5 @@
 
-# 🔨 GavelDrive — Live Collector Automotive Auctions
+#  GavelDrive — Live Collector Automotive Auctions
 
 <div align="center">
 
