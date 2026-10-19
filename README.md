@@ -3,7 +3,7 @@
 
 <div align="center">
 
-![GavelDrive Banner](https://images.unsplash.com/photo-1617814076367-b759c7d7e738?q=80&w=1200&auto=format&fit=crop)
+
 
 ### *The premier curated, real-time automotive digital auction platform.*
 
