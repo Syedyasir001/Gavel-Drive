@@ -35,6 +35,7 @@ venv/
 *.sqlite3
 *.db
 uploads/
+gaveldrive/
 
 # Editor directories and files
 .vscode/*
