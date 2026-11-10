@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
@@ -55,6 +55,44 @@ const Dashboard = () => {
     depositsRefundedCount: 0,
   });
 
+  const navigate = useNavigate();
+
+  // DigiLocker callback handler — runs when Setu redirects back to /dashboard?success=True&id=...
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const successParam = params.get('success');
+    const requestId = params.get('id');
+
+    if (successParam === 'True' && requestId) {
+      // Strip the DigiLocker query params from the URL immediately
+      params.delete('success');
+      params.delete('id');
+      params.delete('scope');
+      const cleanSearch = params.toString();
+      navigate(
+        cleanSearch ? `/dashboard?${cleanSearch}` : '/dashboard',
+        { replace: true }
+      );
+
+      // Call verify
+      (async () => {
+        try {
+          const res = await api.post('/kyc/digilocker/verify', { requestId });
+          if (res.data?.success) {
+            updateUser({
+              verificationStatus: res.data.verificationStatus || 'verified',
+              verificationDetails: res.data.verificationDetails,
+            });
+          }
+        } catch (err) {
+          console.error('[KYC] DigiLocker verify error:', err);
+        }
+      })();
+    }
+  }, [isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Fetch Dashboard Data
   useEffect(() => {
     let isMounted = true;
@@ -107,11 +145,11 @@ const Dashboard = () => {
 
             setSummary((prev) => ({
               ...prev,
-              activeBidsCount: hSummary?.activeBidsCount ?? hData.activeBids?.length ?? 0,
-              wonAuctionsCount: hSummary?.wonAuctionsCount ?? (hData.wonAuctions?.length || DEFAULT_WON_AUCTIONS.length),
-              lostAuctionsCount: hSummary?.lostAuctionsCount ?? (hData.lostAuctions?.length || DEFAULT_LOST_AUCTIONS.length),
-              soldVehiclesCount: hSummary?.soldVehiclesCount ?? hData.soldVehicles?.length ?? 0,
-              myListingsCount: hSummary?.myListingsCount ?? hData.myListings?.length ?? 0,
+              activeBidsCount: hSummary?.activeBidsCount ?? (hData.activeBids?.length || 0),
+              wonAuctionsCount: hSummary?.wonAuctionsCount ?? (hData.wonAuctions?.length ?? DEFAULT_WON_AUCTIONS.length),
+              lostAuctionsCount: hSummary?.lostAuctionsCount ?? (hData.lostAuctions?.length ?? DEFAULT_LOST_AUCTIONS.length),
+              soldVehiclesCount: hSummary?.soldVehiclesCount ?? (hData.soldVehicles?.length || 0),
+              myListingsCount: hSummary?.myListingsCount ?? (hData.myListings?.length || 0),
               depositsCount: combinedDeposits.length,
               depositsHeldCount: combinedDeposits.filter((d) => d.status === 'held').length,
               depositsRefundedCount: combinedDeposits.filter((d) => d.status === 'refunded').length,
@@ -211,7 +249,7 @@ const Dashboard = () => {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" state={{ from: '/dashboard' }} replace />;
   }
 
   const historyData = {
@@ -250,13 +288,8 @@ const Dashboard = () => {
             </h1>
           </div>
 
-          {/* User Status Pills (Replacing redundant +Create Listing button) */}
+          {/* User Status Pills */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            <KycBadge
-              status={user?.verificationStatus}
-              onClick={() => setIsKycModalOpen(true)}
-              interactive
-            />
             <div className="px-3 py-1 rounded-pill bg-gd-surface border border-gd-line text-xs font-medium text-gd-muted flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-gd-reserveMet" />
               <span>Unified Member</span>
@@ -281,6 +314,7 @@ const Dashboard = () => {
               user={user}
               summary={summary}
               activeBids={activeBids}
+              wonAuctions={wonAuctions}
               recentLedger={[...wonAuctions, ...lostAuctions]}
               paymentMethods={paymentMethods}
               onSelectTab={setActiveTab}
@@ -313,6 +347,7 @@ const Dashboard = () => {
               paymentMethods={paymentMethods}
               onOpenKycModal={() => setIsKycModalOpen(true)}
               onOpenAddPayment={() => setIsPaymentModalOpen(true)}
+              onPaymentAdded={handlePaymentAdded}
               onRemovePayment={handleRemovePayment}
               onSetDefaultPayment={handleSetDefaultPayment}
             />

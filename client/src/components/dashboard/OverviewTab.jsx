@@ -12,6 +12,7 @@ const OverviewTab = ({
   user,
   summary = {},
   activeBids = [],
+  wonAuctions = [],
   recentLedger = [],
   paymentMethods = [],
   onSelectTab,
@@ -21,6 +22,12 @@ const OverviewTab = ({
   const isVerified = user?.verificationStatus === 'verified';
   const hasCardOnFile = paymentMethods.length > 0;
   const isBiddingReady = isVerified && hasCardOnFile;
+
+  // Derive counts dynamically to prevent state drift between ledger/tabs and summary cards
+  const wonCount = wonAuctions.length > 0 ? wonAuctions.length : (summary.wonAuctionsCount ?? 0);
+  const activeCount = summary.activeBidsCount ?? activeBids.length;
+  const listingsCount = summary.myListingsCount ?? 0;
+  const savedCount = summary.savedVehiclesCount ?? 0;
 
   return (
     <div className="space-y-8">
@@ -33,12 +40,18 @@ const OverviewTab = ({
         >
           <div className="flex justify-between items-center mb-2">
             <span className="text-eyebrow font-medium text-gd-muted uppercase">Active Bids</span>
-            <span className="w-2 h-2 rounded-full bg-gd-primary group-hover:scale-125 transition-transform" />
+            <div className="w-6 h-6 rounded-md bg-blue-500/10 text-gd-primary flex items-center justify-center group-hover:scale-110 transition-transform">
+              {/* Gavel / Bid Hammer Icon */}
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-3-3m3 3V3m7 11l-3-3m3 3H3" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 9.75L16.5 12l-6 6-2.25-2.25 6-6zM8.5 7.5l2-2 3.5 3.5-2 2-3.5-3.5z" />
+              </svg>
+            </div>
           </div>
           <div className="text-2xl font-bold text-gd-ink">
-            {summary.activeBidsCount ?? activeBids.length}
+            {activeCount}
           </div>
-          <span className="text-label text-gd-primary font-medium mt-1 inline-flex items-center gap-1 group-hover:underline">
+          <span className="text-label text-gd-primary font-medium mt-1 inline-flex items-center gap-1 hover:text-blue-600 hover:underline hover:opacity-80 transition-all group-hover:underline">
             View Live Bids →
           </span>
         </button>
@@ -50,12 +63,17 @@ const OverviewTab = ({
         >
           <div className="flex justify-between items-center mb-2">
             <span className="text-eyebrow font-medium text-gd-muted uppercase">Won Auctions</span>
-            <span className="w-2 h-2 rounded-full bg-gd-reserveMet group-hover:scale-125 transition-transform" />
+            <div className="w-6 h-6 rounded-md bg-emerald-500/10 text-gd-reserveMet flex items-center justify-center group-hover:scale-110 transition-transform">
+              {/* Trophy / Winner Cup Icon */}
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.504-1.125-1.125-1.125h-6.75a1.125 1.125 0 01-1.125-1.125V18.75m12.75-9a4.5 4.5 0 00-4.5-4.5h-7.5a4.5 4.5 0 00-4.5 4.5v1.5a4.5 4.5 0 004.5 4.5h.75m8.25-6v6m0 0a4.5 4.5 0 01-4.5 4.5h-.75" />
+              </svg>
+            </div>
           </div>
           <div className="text-2xl font-bold text-gd-ink">
-            {summary.wonAuctionsCount ?? 0}
+            {wonCount}
           </div>
-          <span className="text-label text-gd-reserveMet font-medium mt-1 inline-flex items-center gap-1 group-hover:underline">
+          <span className="text-label text-gd-reserveMet font-medium mt-1 inline-flex items-center gap-1 hover:text-blue-600 hover:underline hover:opacity-80 transition-all group-hover:underline">
             View Ledger →
           </span>
         </button>
@@ -67,13 +85,18 @@ const OverviewTab = ({
         >
           <div className="flex justify-between items-center mb-2">
             <span className="text-eyebrow font-medium text-gd-muted uppercase">My Listings</span>
-            <span className="w-2 h-2 rounded-full bg-gd-cta group-hover:scale-125 transition-transform" />
+            <div className="w-6 h-6 rounded-md bg-amber-500/10 text-gd-cta flex items-center justify-center group-hover:scale-110 transition-transform">
+              {/* Car Icon */}
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 17h.01M16 17h.01M3 13l2-5h14l2 5M5 17h14a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2z" />
+              </svg>
+            </div>
           </div>
           <div className="text-2xl font-bold text-gd-ink">
-            {summary.myListingsCount ?? 0}
+            {listingsCount}
           </div>
-          <span className="text-label text-gd-muted font-medium mt-1 inline-flex items-center gap-1 group-hover:text-gd-ink">
-            Manage Vehicles →
+          <span className="text-label text-gd-muted font-medium mt-1 inline-flex items-center gap-1 hover:text-blue-600 hover:underline hover:opacity-80 transition-all group-hover:text-gd-ink">
+            {listingsCount === 0 ? 'List a Vehicle →' : 'Manage Vehicles →'}
           </span>
         </button>
 
@@ -84,12 +107,17 @@ const OverviewTab = ({
         >
           <div className="flex justify-between items-center mb-2">
             <span className="text-eyebrow font-medium text-gd-muted uppercase">Watchlist</span>
-            <span className="w-2 h-2 rounded-full bg-gd-ghost group-hover:scale-125 transition-transform" />
+            <div className="w-6 h-6 rounded-md bg-gray-500/10 text-gd-ghost flex items-center justify-center group-hover:scale-110 transition-transform">
+              {/* Bookmark / Heart Icon */}
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+              </svg>
+            </div>
           </div>
           <div className="text-2xl font-bold text-gd-ink">
-            {summary.savedVehiclesCount ?? 0}
+            {savedCount}
           </div>
-          <span className="text-label text-gd-muted font-medium mt-1 inline-flex items-center gap-1 group-hover:text-gd-ink">
+          <span className="text-label text-gd-muted font-medium mt-1 inline-flex items-center gap-1 hover:text-blue-600 hover:underline hover:opacity-80 transition-all group-hover:text-gd-ink">
             View Watchlist →
           </span>
         </button>
@@ -113,7 +141,7 @@ const OverviewTab = ({
               <EmptyState
                 icon={
                   <svg className="w-6 h-6 text-gd-ghost" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 17h.01M16 17h.01M3 13l2-5h14l2 5M5 17h14a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2z" />
                   </svg>
                 }
                 title="No Active Bids"

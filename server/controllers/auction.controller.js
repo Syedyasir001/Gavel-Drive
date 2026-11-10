@@ -1,4 +1,6 @@
 const Auction = require('../models/Auction');
+const Car = require('../models/Car');
+const User = require('../models/User');
 const { refundAuctionDeposits } = require('./deposit.controller');
 
 /**
@@ -88,11 +90,131 @@ const getAuctionById = async (req, res, next) => {
   }
 };
 
+/**
+ * @route   POST /api/auctions
+ * @desc    Create a new auction and persist to MongoDB
+ * @access  Private / Optional Auth
+ */
 const createAuction = async (req, res, next) => {
   try {
-    res.status(201).json({
+    const {
+      car,
+      startPrice,
+      endTime,
+      startTime,
+      currentBid,
+      seller,
+      status,
+    } = req.body;
+
+    if (!car) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a car reference',
+      });
+    }
+
+    if (startPrice === undefined || startPrice === null || isNaN(Number(startPrice))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid starting price',
+      });
+    }
+
+    if (!endTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an auction end time',
+      });
+    }
+
+    // Verify car exists
+    const carDoc = await Car.findById(car);
+    if (!carDoc) {
+      return res.status(404).json({
+        success: false,
+        message: `Car not found with id ${car}`,
+      });
+    }
+
+    // Resolve seller: token user -> body seller -> car seller -> fallback user in DB
+    let auctionSeller = req.user?._id || seller || carDoc.seller;
+    if (!auctionSeller) {
+      const defaultUser = await User.findOne();
+      if (defaultUser) {
+        auctionSeller = defaultUser._id;
+      } else {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required. Please log in to create an auction.',
+        });
+      }
+    }
+
+    const parsedStartTime = startTime ? new Date(startTime) : new Date();
+    const parsedEndTime = new Date(endTime);
+
+    if (isNaN(parsedEndTime.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid auction end time date',
+      });
+    }
+
+    if (parsedEndTime <= parsedStartTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'Auction end time must be after the start time',
+      });
+    }
+
+    const parsedStartPrice = Number(startPrice);
+    const initialBid =
+      currentBid !== undefined && !isNaN(Number(currentBid))
+        ? Number(currentBid)
+        : parsedStartPrice;
+
+    // Status resolution
+    let auctionStatus = status;
+    const now = Date.now();
+    if (!auctionStatus) {
+      if (parsedEndTime.getTime() <= now) {
+        auctionStatus = 'ended';
+      } else if (parsedStartTime.getTime() <= now) {
+        auctionStatus = 'live';
+      } else {
+        auctionStatus = 'upcoming';
+      }
+    }
+
+    const auction = await Auction.create({
+      car: carDoc._id,
+      seller: auctionSeller,
+      startPrice: parsedStartPrice,
+      currentBid: initialBid,
+      startTime: parsedStartTime,
+      endTime: parsedEndTime,
+      status: auctionStatus,
+    });
+
+    await auction.populate([
+      {
+        path: 'car',
+        populate: {
+          path: 'seller',
+          select: 'name email profilePic',
+        },
+      },
+      {
+        path: 'seller',
+        select: 'name email profilePic',
+      },
+    ]);
+
+    return res.status(201).json({
       success: true,
-      message: 'Create auction endpoint placeholder',
+      message: 'Auction created successfully',
+      data: auction,
     });
   } catch (error) {
     next(error);
@@ -160,9 +282,23 @@ const endAuction = async (req, res, next) => {
 
 const cancelAuction = async (req, res, next) => {
   try {
-    res.status(200).json({
+    const auction = await Auction.findById(req.params.id);
+    if (!auction) {
+      return res.status(404).json({
+        success: false,
+        message: `Auction not found with id ${req.params.id}`,
+      });
+    }
+
+    auction.status = 'ended';
+    await auction.save();
+    const refunded = await refundAuctionDeposits(auction._id);
+
+    return res.status(200).json({
       success: true,
-      message: `Cancel auction ${req.params.id} placeholder`,
+      message: `Auction ${req.params.id} cancelled successfully`,
+      refundedDeposits: refunded,
+      data: auction,
     });
   } catch (error) {
     next(error);

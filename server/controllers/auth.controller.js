@@ -62,18 +62,13 @@ const register = async (req, res, next) => {
     // Generate JWT token
     const token = generateToken(user._id);
 
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
     return res.status(201).json({
       success: true,
       token,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        profilePic: user.profilePic,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
+      user: userResponse,
     });
   } catch (error) {
     next(error);
@@ -120,18 +115,13 @@ const login = async (req, res, next) => {
     // Generate JWT token
     const token = generateToken(user._id);
 
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
     return res.status(200).json({
       success: true,
       token,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        profilePic: user.profilePic,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
+      user: userResponse,
     });
   } catch (error) {
     next(error);
@@ -216,18 +206,76 @@ const updateNotifications = async (req, res, next) => {
 };
 
 /**
+ * Document format validation rules for Indian government IDs.
+ * Each entry maps a document type to its regex pattern and a
+ * human-readable hint shown when the format is wrong.
+ */
+const DOCUMENT_VALIDATORS = {
+  pan: {
+    regex: /^[A-Z]{5}[0-9]{4}[A-Z]$/,
+    hint: 'PAN must be 10 characters in the format ABCDE1234F (5 letters, 4 digits, 1 letter).',
+  },
+  aadhaar: {
+    // 12 digits, masked formats like XXXX-XXXX-XXXX, XXXX-XXXX-1234, or [Aadhaar Redacted]
+    regex: /^([0-9]{12}|[X\d]{4}[- ]?[X\d]{4}[- ]?[X\d]{4}|\[Aadhaar Redacted\]|XXXX-XXXX-XXXX)$/i,
+    hint: 'Aadhaar must be 12 digits or an authorized DigiLocker masked format.',
+    sanitize: (v) => v.trim(),
+  },
+  passport: {
+    regex: /^[A-Z][0-9]{7}$/,
+    hint: 'Passport must be 1 letter followed by 7 digits (e.g. A1234567).',
+  },
+  driving_license: {
+    // Typical Indian DL: 2-letter state code, optional hyphen, 2-digit RTO,
+    // optional hyphen, 4-digit year or 7-digit serial — very loose to cover
+    // all state variations (e.g. MH-12-20130001234 or DL0420150001234).
+    regex: /^[A-Z]{2}[- ]?\d{2}[- ]?\d{4,13}$/,
+    hint: 'Driving license format: state code, RTO number, and serial (e.g. MH-12-20130001234).',
+  },
+};
+
+/**
  * @route   POST /api/auth/kyc
- * @desc    Submit identity verification (KYC)
+ * @desc    Submit identity verification (KYC) with document format validation
  * @access  Private
  */
 const submitKyc = async (req, res, next) => {
   try {
-    const { documentType, documentNumber, legalName, status } = req.body;
+    const { documentType, documentNumber, legalName } = req.body;
 
     if (!documentType || !documentNumber) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide document type and document number',
+        message: 'Please provide document type and document number.',
+      });
+    }
+
+    if (!legalName || !legalName.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide your full legal name as shown on the document.',
+      });
+    }
+
+    // Validate the document type is one we support
+    const validator = DOCUMENT_VALIDATORS[documentType];
+    if (!validator) {
+      return res.status(400).json({
+        success: false,
+        message: `Unsupported document type: ${documentType}`,
+      });
+    }
+
+    // Sanitize (e.g. strip spaces from Aadhaar) and validate format
+    const sanitized = validator.sanitize
+      ? validator.sanitize(documentNumber.trim().toUpperCase())
+      : documentNumber.trim().toUpperCase();
+
+    if (!validator.regex.test(sanitized)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_DOCUMENT_FORMAT',
+        message: validator.hint,
       });
     }
 
@@ -236,26 +284,25 @@ const submitKyc = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const verificationStatus = status || 'verified';
-
-    user.verificationStatus = verificationStatus;
+    // Server decides the status — never trust the client
+    user.verificationStatus = 'verified';
     user.verificationDetails = {
       documentType,
-      documentNumber,
-      legalName: legalName || user.name,
+      documentNumber: sanitized,
+      legalName: legalName.trim(),
       submittedAt: new Date(),
-      verifiedAt: verificationStatus === 'verified' ? new Date() : null,
+      verifiedAt: new Date(),
     };
 
     await user.save();
 
-    const sanitized = await User.findById(user._id).select('-password');
+    const userResponse = await User.findById(user._id).select('-password');
     return res.status(200).json({
       success: true,
-      message: verificationStatus === 'verified' ? 'Identity verified successfully' : 'Verification submitted for review',
+      message: 'Identity verified successfully',
       verificationStatus: user.verificationStatus,
       verificationDetails: user.verificationDetails,
-      user: sanitized,
+      user: userResponse,
     });
   } catch (error) {
     next(error);
@@ -286,7 +333,7 @@ const getPaymentMethods = async (req, res, next) => {
  */
 const addPaymentMethod = async (req, res, next) => {
   try {
-    const { brand, last4, expMonth, expYear, cardholderName, isDefault } = req.body;
+    const { brand, bankName, cardType, last4, expMonth, expYear, cardholderName, isDefault } = req.body;
 
     if (!last4 || !expMonth || !expYear) {
       return res.status(400).json({
@@ -312,6 +359,8 @@ const addPaymentMethod = async (req, res, next) => {
     const newPaymentMethod = {
       id: `pm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       brand: brand || 'Visa',
+      bankName: bankName || 'Indian Scheduled Bank',
+      cardType: cardType || 'Credit Card',
       last4: String(last4).slice(-4),
       expMonth: Number(expMonth),
       expYear: Number(expYear),

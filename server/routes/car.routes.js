@@ -7,6 +7,7 @@ const {
   updateCar,
   deleteCar,
 } = require('../controllers/car.controller');
+const { verifyToken, optionalAuth } = require('../middleware/auth.middleware');
 
 // @route   GET /api/cars
 // @desc    Get all car listings
@@ -18,14 +19,14 @@ router.get('/:id', getCarById);
 
 // @route   POST /api/cars
 // @desc    Create a new car listing
-router.post('/', createCar);
+router.post('/', verifyToken, createCar);
 
 // @route   PUT /api/cars/:id
 // @desc    Update car listing
-router.put('/:id', updateCar);
+router.put('/:id', optionalAuth, updateCar);
 
 // @route   DELETE /api/cars/:id
 // @desc    Delete car listing
-router.delete('/:id', deleteCar);
+router.delete('/:id', optionalAuth, deleteCar);
 
 module.exports = router;

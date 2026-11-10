@@ -2,6 +2,8 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
+import Logo from '../../logo';
+
 const Navbar = () => {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
@@ -14,20 +16,19 @@ const Navbar = () => {
   return (
     <header className="sticky top-0 z-50 backdrop-blur-md bg-gd-sidebar/90 border-b border-gd-line">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Brand */}
-        <Link to="/" className="flex items-center gap-2.5 group">
-          <div className="w-10 h-10 rounded-md bg-gd-cta flex items-center justify-center shadow-none group-hover:bg-gd-ctaHover transition-colors duration-200">
-            <span className="text-xl font-black text-gd-inverse">G</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xl font-bold tracking-tight text-gd-ink group-hover:text-gd-ctaHover transition-colors">
-              Gavel Drive
-            </span>
-            <span className="text-eyebrow font-medium text-gd-muted uppercase tracking-widest">
-              Live Car Auctions
-            </span>
-          </div>
-        </Link>
+        {/* Brand Logo */}
+        <div className="flex items-center gap-6">
+          <Logo variant="full" />
+          <Link
+            to="/browse"
+            className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-gd-muted hover:text-gd-ink transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            Browse Auctions
+          </Link>
+        </div>
 
         {/* Navigation Links */}
         <nav className="flex items-center gap-6">
@@ -49,9 +50,12 @@ const Navbar = () => {
               </Link>
               <button
                 onClick={handleLogout}
-                className="text-xs font-semibold px-3.5 py-2 rounded-md bg-gd-surface hover:bg-gd-error hover:text-gd-inverse text-gd-ink border border-gd-line hover:border-gd-error transition-all cursor-pointer"
+                className="text-xs font-semibold px-3.5 py-2 rounded-md bg-gd-surface hover:bg-gd-error hover:text-gd-inverse text-gd-ink border border-gd-line hover:border-gd-error transition-all cursor-pointer inline-flex items-center gap-1.5"
               >
-                Logout
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                </svg>
+                <span>Logout</span>
               </button>
             </div>
           ) : (

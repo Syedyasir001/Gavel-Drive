@@ -1,5 +1,6 @@
 const Deposit = require('../models/Deposit');
 const Auction = require('../models/Auction');
+const User = require('../models/User');
 const mongoose = require('mongoose');
 
 /**
@@ -46,6 +47,16 @@ const payEntryFee = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Authentication required to pay bidding deposit',
+      });
+    }
+
+    // Enforce KYC verification compliance
+    const userRecord = await User.findById(userId);
+    if (!userRecord || userRecord.verificationStatus !== 'verified') {
+      return res.status(403).json({
+        success: false,
+        code: 'KYC_REQUIRED',
+        message: 'Identity verification (KYC) is required by automotive auction compliance before unlocking bidding privileges.',
       });
     }
 

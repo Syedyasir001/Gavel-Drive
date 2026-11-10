@@ -43,6 +43,18 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+/**
+ * Middleware to optionally attach authenticated user if token present
+ */
+const optionalAuth = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return verifyToken(req, res, next);
+  }
+  next();
+};
+
 module.exports = {
   verifyToken,
+  optionalAuth,
 };

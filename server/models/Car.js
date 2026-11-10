@@ -40,6 +40,11 @@ const carSchema = new mongoose.Schema(
       ref: 'User',
       required: [true, 'Please assign a seller to this car'],
     },
+    specs: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     aiValuation: {
       type: Number,
     },

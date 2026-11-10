@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       match: [
-        /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
         'Please provide a valid email address',
       ],
     },
@@ -64,6 +64,8 @@ const userSchema = new mongoose.Schema(
       {
         id: { type: String, required: true },
         brand: { type: String, default: 'Visa' },
+        bankName: { type: String, default: 'Indian Scheduled Bank' },
+        cardType: { type: String, default: 'Credit Card' },
         last4: { type: String, required: true },
         expMonth: { type: Number, required: true },
         expYear: { type: Number, required: true },
@@ -79,6 +81,12 @@ const userSchema = new mongoose.Schema(
       newsletter: { type: Boolean, default: true },
       smsAlerts: { type: Boolean, default: false },
     },
+    kycPending: {
+      requestId: { type: String, default: '' },
+      documentType: { type: String, default: '' },
+      documentNumber: { type: String, default: '' },
+      fullName: { type: String, default: '' },
+    },
     savedVehicles: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -92,14 +100,13 @@ const userSchema = new mongoose.Schema(
 );
 
 // Pre-save middleware to hash password if modified
-userSchema.pre('save', async function (next) {
+userSchema.pre('save', async function () {
   if (!this.isModified('password')) {
-    return next();
+    return;
   }
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-  next();
 });
 
 // Compare entered password with hashed password in database

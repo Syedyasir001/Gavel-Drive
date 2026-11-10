@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import AuctionCard from '../components/auction/AuctionCard';
 import Pagination from '../components/common/Pagination';
@@ -24,15 +25,24 @@ const MAKES = [
 const STATUSES = ['live', 'upcoming', 'ended'];
 
 const Browse = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [auctions, setAuctions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 6;
   const gridTopRef = useRef(null);
 
-  // Filters State
-  const [selectedMakes, setSelectedMakes] = useState([]);
-  const [selectedStatuses, setSelectedStatuses] = useState([]);
+  // Derive filter state from URL params
+  const selectedMakes = searchParams.getAll('make');
+  const selectedStatuses = searchParams.getAll('status');
+  const currentPage = Number(searchParams.get('page') || '1');
+  const pageSize = 6;
+
+  const updateParams = useCallback((makes, statuses, page) => {
+    const params = new URLSearchParams();
+    makes.forEach((m) => params.append('make', m));
+    statuses.forEach((s) => params.append('status', s));
+    if (page > 1) params.set('page', String(page));
+    setSearchParams(params, { replace: true });
+  }, [setSearchParams]);
 
   useEffect(() => {
     const fetchAuctions = async () => {
@@ -60,32 +70,29 @@ const Browse = () => {
   }, []);
 
   const handleMakeChange = (make) => {
-    setSelectedMakes((prev) =>
-      prev.includes(make) ? prev.filter((m) => m !== make) : [...prev, make]
-    );
-    setCurrentPage(1);
+    const next = selectedMakes.includes(make)
+      ? selectedMakes.filter((m) => m !== make)
+      : [...selectedMakes, make];
+    updateParams(next, selectedStatuses, 1);
   };
 
   const handleStatusChange = (status) => {
-    setSelectedStatuses((prev) =>
-      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
-    );
-    setCurrentPage(1);
+    const next = selectedStatuses.includes(status)
+      ? selectedStatuses.filter((s) => s !== status)
+      : [...selectedStatuses, status];
+    updateParams(selectedMakes, next, 1);
   };
 
   const removeFilter = (type, value) => {
     if (type === 'make') {
-      setSelectedMakes((prev) => prev.filter((m) => m !== value));
+      updateParams(selectedMakes.filter((m) => m !== value), selectedStatuses, 1);
     } else if (type === 'status') {
-      setSelectedStatuses((prev) => prev.filter((s) => s !== value));
+      updateParams(selectedMakes, selectedStatuses.filter((s) => s !== value), 1);
     }
-    setCurrentPage(1);
   };
 
   const resetAll = () => {
-    setSelectedMakes([]);
-    setSelectedStatuses([]);
-    setCurrentPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // Derived filtered auctions
@@ -102,7 +109,7 @@ const Browse = () => {
   const paginatedAuctions = filteredAuctions.slice(startIndex, startIndex + pageSize);
 
   const handlePageChange = (page) => {
-    setCurrentPage(page);
+    updateParams(selectedMakes, selectedStatuses, page);
     if (gridTopRef.current) {
       const topOffset = gridTopRef.current.getBoundingClientRect().top + window.scrollY - 80;
       window.scrollTo({
@@ -111,6 +118,8 @@ const Browse = () => {
       });
     }
   };
+
+  const hasActiveFilters = selectedMakes.length > 0 || selectedStatuses.length > 0;
 
   return (
     <div className="min-h-screen bg-gd-bg py-10">
@@ -126,14 +135,24 @@ const Browse = () => {
           <aside className="bg-white border border-gd-line rounded-md p-5 h-fit shadow-card">
             <div className="flex items-center justify-between pb-4 border-b border-gd-line">
               <h2 className="text-base font-semi text-gd-ink">Filters</h2>
-              {(selectedMakes.length > 0 || selectedStatuses.length > 0) && (
-                <button
-                  onClick={resetAll}
-                  className="text-xs text-gd-muted hover:text-gd-ink transition-colors cursor-pointer"
-                >
-                  Clear all
-                </button>
-              )}
+            </div>
+
+            {/* Always-visible Clear Filters button */}
+            <div className="mt-4">
+              <button
+                onClick={resetAll}
+                disabled={!hasActiveFilters}
+                className={`w-full py-2 px-3 rounded-md text-xs font-semibold transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer ${
+                  hasActiveFilters
+                    ? 'bg-gd-error/10 border border-gd-error/30 text-gd-error hover:bg-gd-error/20'
+                    : 'bg-gd-surface border border-gd-line text-gd-ghost cursor-not-allowed'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Clear All Filters
+              </button>
             </div>
 
             {/* Status Section */}
@@ -191,7 +210,7 @@ const Browse = () => {
           {/* Main Content */}
           <div ref={gridTopRef} className="lg:col-span-3">
             {/* Active Filters Row */}
-            {(selectedMakes.length > 0 || selectedStatuses.length > 0) && (
+            {hasActiveFilters && (
               <div className="flex flex-wrap items-center gap-2 mb-6">
                 {selectedStatuses.map((status) => (
                   <span
@@ -277,7 +296,7 @@ const Browse = () => {
               </div>
             )}
 
-            {/* Working Animated Pagination Component */}
+            {/* Pagination */}
             {totalItems > pageSize && (
               <Pagination
                 currentPage={currentPage}

@@ -91,6 +91,10 @@ const BiddingDepositModal = ({
       onClose();
     } catch (err) {
       setLoading(false);
+      if (err.response?.data?.code === 'KYC_REQUIRED') {
+        setErrorMsg('Identity verification (KYC) is required by automotive auction compliance before unlocking bidding privileges.');
+        return;
+      }
       setErrorMsg(
         err.response?.data?.message || 'Failed to process bidding deposit authorization. Please try again.'
       );

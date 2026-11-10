@@ -36,6 +36,7 @@ app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/cars', require('./routes/car.routes'));
 app.use('/api/auctions', require('./routes/auction.routes'));
 app.use('/api/bids', require('./routes/bid.routes'));
+app.use('/api/kyc', require('./routes/kyc.routes'));
 
 // 404 handler
 app.use(notFound);

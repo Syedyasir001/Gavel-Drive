@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { findSampleAuction } from '../data/sampleAuctions';
 import BiddingDepositModal from '../components/auction/BiddingDepositModal';
+import KycModal from '../components/dashboard/KycModal';
 
 /**
  * Consistent vehicle asset gallery representing angles (front, rear, interior, engine, wheel)
@@ -222,6 +223,66 @@ const TimerTiles = ({ ms, label }) => {
   );
 };
 
+const ImageLightbox = ({ images, activeImage, onClose, onPrev, onNext }) => {
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') onPrev();
+      if (e.key === 'ArrowRight') onNext();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose, onPrev, onNext]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center"
+      onClick={onClose}
+    >
+      <button
+        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer z-10"
+        onClick={onClose}
+        aria-label="Close lightbox"
+      >
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <button
+        className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer z-10"
+        onClick={(e) => { e.stopPropagation(); onPrev(); }}
+        aria-label="Previous image"
+      >
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+      </button>
+
+      <button
+        className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer z-10"
+        onClick={(e) => { e.stopPropagation(); onNext(); }}
+        aria-label="Next image"
+      >
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+
+      <div className="max-w-5xl max-h-[90vh] w-full px-16" onClick={(e) => e.stopPropagation()}>
+        <img
+          src={images[activeImage]}
+          alt={`Vehicle image ${activeImage + 1}`}
+          className="w-full h-full object-contain max-h-[80vh]"
+        />
+        <div className="text-center mt-3 text-white/60 text-sm">
+          {activeImage + 1} / {images.length}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const SectionHeading = ({ eyebrow, title, count }) => (
   <div className="flex items-end justify-between gap-4">
     <div>
@@ -249,7 +310,10 @@ const VehicleDetail = () => {
 
 const VehicleDetailContent = ({ id }) => {
   const navigate = useNavigate();
-  const { user, isAuthenticated } = useAuth();
+  const location = useLocation();
+  const { user, isAuthenticated, updateUser } = useAuth();
+  const isVerified = user?.verificationStatus === 'verified';
+  const [isKycModalOpen, setIsKycModalOpen] = useState(false);
 
   const sample = useMemo(() => findSampleAuction(id), [id]);
 
@@ -262,6 +326,9 @@ const VehicleDetailContent = ({ id }) => {
   const [bidAmount, setBidAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [bidMsg, setBidMsg] = useState('');
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [inspectionOpen, setInspectionOpen] = useState(false);
+  const [bidHistoryOpen, setBidHistoryOpen] = useState(true);
 
   // Refundable Bidding Entry Fee Deposit State
   const [deposit, setDeposit] = useState(() => {
@@ -431,15 +498,23 @@ const VehicleDetailContent = ({ id }) => {
 
   const handleWatchToggle = () => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: location.pathname } });
       return;
     }
     setSaved((s) => !s);
   };
 
+  const openLightbox = (index) => {
+    setActiveImage(index);
+    setLightboxOpen(true);
+  };
+
+  const lightboxPrev = () => setActiveImage((i) => (i - 1 + images.length) % images.length);
+  const lightboxNext = () => setActiveImage((i) => (i + 1) % images.length);
+
   const openBid = () => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: location.pathname } });
       return;
     }
     if (!hasEntryDeposit) {
@@ -462,7 +537,11 @@ const VehicleDetailContent = ({ id }) => {
 
   const handleQuickBid = (inc) => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: location.pathname } });
+      return;
+    }
+    if (!isVerified) {
+      setIsKycModalOpen(true);
       return;
     }
     if (!hasEntryDeposit) {
@@ -482,6 +561,14 @@ const VehicleDetailContent = ({ id }) => {
 
   const placeBid = async (e) => {
     e.preventDefault();
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: location.pathname } });
+      return;
+    }
+    if (!isVerified) {
+      setIsKycModalOpen(true);
+      return;
+    }
     if (!hasEntryDeposit) {
       setIsDepositModalOpen(true);
       return;
@@ -504,6 +591,11 @@ const VehicleDetailContent = ({ id }) => {
         });
       }
     } catch (err) {
+      if (err.response?.data?.code === 'KYC_REQUIRED') {
+        setBusy(false);
+        setIsKycModalOpen(true);
+        return;
+      }
       if (err.response?.data?.code === 'ENTRY_FEE_REQUIRED') {
         setBusy(false);
         setIsDepositModalOpen(true);
@@ -657,7 +749,7 @@ const VehicleDetailContent = ({ id }) => {
             {/* Gallery */}
             <section>
               <div className="relative bg-gd-card rounded-md overflow-hidden">
-                <div className="aspect-[16/10] relative">
+                <div className="aspect-[16/10] relative cursor-zoom-in" onClick={() => openLightbox(activeImage)}>
                   <img
                     src={images[activeImage] || images[0] || FALLBACK_IMAGE}
                     alt={auction.car?.title || 'Vehicle'}
@@ -667,6 +759,12 @@ const VehicleDetailContent = ({ id }) => {
                   <span className="absolute top-3 right-3 px-2.5 py-1 rounded-pill bg-black/50 text-gd-inverse text-eyebrow font-bold uppercase tracking-wide backdrop-blur-sm">
                     {Math.min(activeImage + 1, images.length)} / {images.length}
                   </span>
+                  <span className="absolute bottom-3 left-3 px-2 py-1 rounded-md bg-black/50 text-white text-eyebrow font-medium backdrop-blur-sm flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                    </svg>
+                    Click to expand
+                  </span>
                 </div>
               </div>
 
@@ -675,7 +773,7 @@ const VehicleDetailContent = ({ id }) => {
                 {images.map((img, i) => (
                   <button
                     key={`${img}-${i}`}
-                    onClick={() => setActiveImage(i)}
+                    onClick={() => openLightbox(i)}
                     className={`aspect-[16/10] rounded-md overflow-hidden border-2 transition-all duration-150 cursor-pointer ${
                       i === activeImage
                         ? 'border-gd-cta ring-1 ring-gd-cta'
@@ -737,76 +835,175 @@ const VehicleDetailContent = ({ id }) => {
               </div>
             </section>
 
-            {/* Bid activity */}
+            {/* Bid activity - Collapsible & Scrollable Log */}
             <section>
-              <SectionHeading
-                eyebrow="Activity"
-                title="Bid History"
-                count={`${auction.bidCount || bidHistory.length} bids`}
-              />
-              <div className="mt-5 bg-gd-sidebar border border-gd-line rounded-md overflow-hidden">
-                {bidHistory.length > 0 ? (
-                  <ul className="divide-y divide-gd-line">
-                    {bidHistory.slice(0, 8).map((bid, i) => {
-                      const isLeading = i === 0 && auction.status !== 'ended';
-                      const won = bid.winner || (i === 0 && auction.status === 'ended');
-                      return (
-                        <li
-                          key={`${bid.bidder}-${i}`}
-                          className={`px-5 py-3.5 flex items-center justify-between gap-4 transition-colors ${
-                            isLeading
-                              ? 'bg-green-50/70 border-l-4 border-l-gd-success'
-                              : won
-                                ? 'bg-green-50/40'
-                                : ''
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className={`w-8 h-8 rounded-md font-bold text-xs flex items-center justify-center uppercase shrink-0 ${
-                              isLeading || won
-                                ? 'bg-gd-success/15 text-gd-success'
-                                : 'bg-gd-cta/5 text-gd-cta'
-                            }`}>
-                              {bid.bidder.slice(0, 1)}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-gd-ink truncate">
-                                {bid.bidder}
-                                {won && (
-                                  <span className="ml-2 text-eyebrow font-bold text-gd-success uppercase">
-                                    Winner
-                                  </span>
+              <button
+                type="button"
+                onClick={() => setBidHistoryOpen((v) => !v)}
+                className="w-full flex items-center justify-between text-left focus:outline-none group cursor-pointer"
+                aria-expanded={bidHistoryOpen}
+              >
+                <SectionHeading
+                  eyebrow="Activity"
+                  title="Bid History"
+                  count={`${auction.bidCount || bidHistory.length} bids`}
+                />
+                <span className={`w-8 h-8 rounded-full border border-gd-line flex items-center justify-center text-gd-muted group-hover:text-gd-ink transition-all shrink-0 ${bidHistoryOpen ? 'bg-gd-surface rotate-180' : ''}`}>
+                  <svg className="w-4 h-4 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </span>
+              </button>
+
+              {bidHistoryOpen && (
+                <div className="mt-5 bg-gd-sidebar border border-gd-line rounded-md overflow-hidden animate-fade-in shadow-sm">
+                  {bidHistory.length > 0 ? (
+                    <div className="max-h-80 overflow-y-auto divide-y divide-gd-line pr-0.5">
+                      <ul className="divide-y divide-gd-line">
+                        {bidHistory.map((bid, i) => {
+                          const isLeading = i === 0 && auction.status !== 'ended';
+                          const won = bid.winner || (i === 0 && auction.status === 'ended');
+                          return (
+                            <li
+                              key={`${bid.bidder}-${i}`}
+                              className={`px-5 py-3.5 flex items-center justify-between gap-4 transition-colors ${
+                                isLeading
+                                  ? 'bg-green-50/70 border-l-4 border-l-gd-success'
+                                  : won
+                                    ? 'bg-green-50/40'
+                                    : 'hover:bg-gd-surface/40'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className={`w-8 h-8 rounded-md font-bold text-xs flex items-center justify-center uppercase shrink-0 ${
+                                  isLeading || won
+                                    ? 'bg-gd-success/15 text-gd-success'
+                                    : 'bg-gd-cta/5 text-gd-cta'
+                                }`}>
+                                  {bid.bidder.slice(0, 1)}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gd-ink truncate">
+                                    {bid.bidder}
+                                    {won && (
+                                      <span className="ml-2 text-eyebrow font-bold text-gd-success uppercase">
+                                        Winner
+                                      </span>
+                                    )}
+                                  </p>
+                                  <p className="text-eyebrow text-gd-ghost uppercase">
+                                    {bid.time}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className={`text-sm font-bold ${
+                                  isLeading || won ? 'text-gd-success' : 'text-gd-ink'
+                                }`}>
+                                  ₹{formatINR(bid.amount)}
+                                </p>
+                                {isLeading && (
+                                  <p className="text-eyebrow font-bold text-gd-success uppercase">
+                                    Leading
+                                  </p>
                                 )}
-                              </p>
-                              <p className="text-eyebrow text-gd-ghost uppercase">
-                                {bid.time}
-                              </p>
-                            </div>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="px-5 py-10 text-center">
+                      <p className="text-sm text-gd-muted">
+                        No bids have been placed yet. Be the first.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            {/* Inspection Report & Service History */}
+            <section>
+              <button
+                type="button"
+                onClick={() => setInspectionOpen((v) => !v)}
+                className="w-full flex items-center justify-between text-left focus:outline-none group"
+              >
+                <SectionHeading eyebrow="Due Diligence" title="Inspection Report & Service History" />
+                <span className={`w-8 h-8 rounded-full border border-gd-line flex items-center justify-center text-gd-muted group-hover:text-gd-ink transition-all shrink-0 ${inspectionOpen ? 'bg-gd-surface rotate-180' : ''}`}>
+                  <svg className="w-4 h-4 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </span>
+              </button>
+
+              {inspectionOpen && (
+                <div className="mt-5 space-y-4">
+                  {/* Mechanical Checklist */}
+                  <div className="bg-gd-sidebar border border-gd-line rounded-md overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gd-line bg-gd-surface">
+                      <h3 className="text-sm font-bold text-gd-ink">Mechanical Inspection Checklist</h3>
+                      <p className="text-xs text-gd-muted mt-0.5">Pre-auction inspection completed by certified technician</p>
+                    </div>
+                    <div className="divide-y divide-gd-line">
+                      {[
+                        { category: 'Engine & Powertrain', items: ['Engine oil level & condition', 'Coolant level', 'Belt & hose inspection', 'Exhaust emissions check'], status: 'pass' },
+                        { category: 'Brakes & Safety', items: ['Brake pad thickness', 'Rotor condition', 'ABS system check', 'Parking brake function'], status: 'pass' },
+                        { category: 'Suspension & Steering', items: ['Shock absorber condition', 'Tie rod & ball joints', 'Wheel alignment (visual)', 'Power steering fluid'], status: 'pass' },
+                        { category: 'Electrical Systems', items: ['Battery health test', 'Alternator output', 'All lighting functional', 'OBD-II scan (no fault codes)'], status: 'pass' },
+                        { category: 'Interior & Exterior', items: ['Odometer reading verified', 'VIN plate match confirmed', 'Paintwork & panel inspection', 'Glass & trim condition'], status: 'pass' },
+                      ].map((sec) => (
+                        <div key={sec.category} className="px-5 py-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-xs font-bold text-gd-ink uppercase tracking-wide">{sec.category}</h4>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-pill bg-gd-success/10 text-gd-success text-eyebrow font-bold uppercase">
+                              <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                              </svg>
+                              Pass
+                            </span>
                           </div>
-                          <div className="text-right shrink-0">
-                            <p className={`text-sm font-bold ${
-                              isLeading || won ? 'text-gd-success' : 'text-gd-ink'
-                            }`}>
-                              ₹{formatINR(bid.amount)}
-                            </p>
-                            {isLeading && (
-                              <p className="text-eyebrow font-bold text-gd-success uppercase">
-                                Leading
-                              </p>
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <div className="px-5 py-10 text-center">
-                    <p className="text-sm text-gd-muted">
-                      No bids have been placed yet. Be the first.
-                    </p>
+                          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {sec.items.map((item) => (
+                              <li key={item} className="flex items-center gap-2 text-xs text-gd-muted">
+                                <svg className="w-3 h-3 text-gd-success shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                                </svg>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  {/* Service History Summary */}
+                  <div className="bg-gd-sidebar border border-gd-line rounded-md overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gd-line bg-gd-surface">
+                      <h3 className="text-sm font-bold text-gd-ink">Service History</h3>
+                      <p className="text-xs text-gd-muted mt-0.5">Dealer-stamped records available for review</p>
+                    </div>
+                    <div className="divide-y divide-gd-line">
+                      {[
+                        { date: 'Mar 2026', mileage: '18,200 km', service: 'Regular maintenance — oil change, filter replacement, brake fluid top-up' },
+                        { date: 'Sep 2025', mileage: '11,500 km', service: 'First service — multi-point inspection, tire rotation, AC service' },
+                        { date: 'Jan 2025', mileage: '0 km', service: 'PDI (Pre-Delivery Inspection) — factory delivery check' },
+                      ].map((record) => (
+                        <div key={record.date} className="px-5 py-3 flex items-start gap-4">
+                          <div className="text-center shrink-0 w-16">
+                            <span className="block text-xs font-bold text-gd-ink">{record.date}</span>
+                            <span className="block text-eyebrow text-gd-ghost mt-0.5">{record.mileage}</span>
+                          </div>
+                          <p className="text-xs text-gd-muted leading-relaxed">{record.service}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
 
             {/* Trust strip */}
@@ -865,28 +1062,6 @@ const VehicleDetailContent = ({ id }) => {
                 <p className="mt-1 text-2xl font-bold text-gd-inverse tabular-nums tracking-tight">
                   ₹{formatINR(currentBid)}
                 </p>
-                {/* Quick bid buttons below Current Bid */}
-                {buttonActive && (
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
-                    <span className="text-eyebrow font-medium text-gd-ghost uppercase">
-                      Quick:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickBid(quickBid1)}
-                      className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-gd-lineDark text-xs font-semibold text-gd-inverse transition-colors duration-150 cursor-pointer"
-                    >
-                      +₹{formatINR(quickBid1)}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickBid(quickBid3)}
-                      className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-gd-lineDark text-xs font-semibold text-gd-inverse transition-colors duration-150 cursor-pointer"
-                    >
-                      +₹{formatINR(quickBid3)}
-                    </button>
-                  </div>
-                )}
               </div>
 
               {remaining !== null && buttonActive ? (
@@ -930,155 +1105,234 @@ const VehicleDetailContent = ({ id }) => {
               )}
 
               {/* Bidding Actions unified directly inside the dark card */}
-              <div className="pt-4 border-t border-gd-lineDark">
+              <div className="pt-4 border-t border-gd-lineDark space-y-4">
                 {buttonActive ? (
-                  !hasEntryDeposit ? (
-                    <div className="space-y-3">
-                      <div className="rounded-md bg-white/5 border border-gd-lineDark p-3.5 space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="flex items-center gap-1.5 text-eyebrow font-bold text-amber-400 uppercase tracking-wider">
+                  <>
+                    {/* Bidding Controls Container: Custom Numeric Input + Preset Increment Buttons */}
+                    <div className={`p-4 rounded-xl border transition-all ${
+                      !hasEntryDeposit
+                        ? 'bg-white/5 border-gd-lineDark/70'
+                        : 'bg-white/10 border-white/20 shadow-inner'
+                    }`}>
+                      {/* Controls Header with Visual Lock State */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-eyebrow font-medium text-gray-300 uppercase flex items-center gap-1.5">
+                          {!hasEntryDeposit && (
                             <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                             </svg>
-                            Entry Deposit Required
-                          </span>
-                          <span className="text-eyebrow font-bold text-emerald-400 uppercase">
-                            100% Refundable
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-300 leading-relaxed">
-                          A refundable entry fee deposit of <strong className="text-white">₹{formatINR(depositAmount)}</strong> is required to enter this live bidding room.
-                        </p>
-                        <div className="flex items-center gap-2 text-eyebrow text-emerald-300 bg-emerald-950/40 border border-emerald-500/30 rounded px-2.5 py-1.5 font-medium">
-                          <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                          </svg>
-                          <span>When this auction ends, this payment is automatically refunded back to your card.</span>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!isAuthenticated) {
-                            navigate('/login');
-                            return;
-                          }
-                          setIsDepositModalOpen(true);
-                        }}
-                        className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                      >
-                        <svg className="w-4 h-4 text-gd-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                        Pay ₹{formatINR(depositAmount)} Deposit &amp; Unlock Bidding
-                      </button>
-                      <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
-                        Held in escrow · Auto-refunded on auction close
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {/* Active deposit indicator */}
-                      <div className="rounded-md bg-emerald-950/40 border border-emerald-500/40 px-3 py-2 flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5 font-bold text-emerald-400">
-                          <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
-                          </svg>
-                          Bidder Deposit Active (₹{formatINR(deposit.amount || depositAmount)} Held)
-                        </span>
-                        <span className="text-eyebrow text-gray-400 uppercase font-medium">
-                          Refunds on close
-                        </span>
-                      </div>
-
-                      {bidOpen ? (
-                        <form onSubmit={placeBid} className="space-y-3">
-                          <label className="block">
-                            <div className="flex items-center justify-between mb-1.5">
-                              <span className="text-eyebrow font-medium text-gray-400 uppercase">
-                                Your bid (₹)
-                              </span>
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickBid(quickBid1)}
-                                  className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 border border-gd-lineDark text-eyebrow font-bold text-white transition-colors cursor-pointer"
-                                >
-                                  +₹{formatINR(quickBid1)}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickBid(quickBid3)}
-                                  className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 border border-gd-lineDark text-eyebrow font-bold text-white transition-colors cursor-pointer"
-                                >
-                                  +₹{formatINR(quickBid3)}
-                                </button>
-                              </div>
-                            </div>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={formattedBidDisplay}
-                              onChange={handleBidInputChange}
-                              placeholder={formatINR(suggestedBid)}
-                              className="w-full rounded-md border border-gray-300 shadow-inner bg-white px-4 py-2.5 text-base font-medium text-gd-ink focus:outline-none focus:ring-2 focus:ring-white tabular-nums"
-                            />
-                          </label>
-                          <div className="flex items-center justify-between text-xs text-gray-400">
-                            <span>Minimum next bid</span>
-                            <span className="font-semibold text-white">₹{formatINR(suggestedBid)}</span>
-                          </div>
-                          {bidMsg && (
-                            <p
-                              className={`text-xs font-medium ${
-                                bidMsg.includes('leading bid')
-                                  ? 'text-gd-success'
-                                  : 'text-gd-endingText'
-                              }`}
-                            >
-                              {bidMsg}
-                            </p>
                           )}
+                          Your Bid Amount
+                        </span>
+                        {!hasEntryDeposit ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-wider flex items-center gap-1">
+                            <span>🔒</span> Locked
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider flex items-center gap-1">
+                            <span>✓</span> Unlocked
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Custom Numeric Bid Input */}
+                      <div className="relative mb-3">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base font-bold text-gray-400 pointer-events-none">
+                          ₹
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          disabled={!hasEntryDeposit}
+                          value={formattedBidDisplay}
+                          onChange={handleBidInputChange}
+                          placeholder={formatINR(suggestedBid)}
+                          className={`w-full rounded-md border pl-8 pr-4 py-2.5 text-base font-bold transition-all tabular-nums outline-none ${
+                            !hasEntryDeposit
+                              ? 'bg-white/5 border-gd-lineDark text-gray-500 cursor-not-allowed select-none'
+                              : 'bg-white text-gd-ink border-white focus:ring-2 focus:ring-white shadow-sm'
+                          }`}
+                        />
+                      </div>
+
+                      {/* Preset Increment Buttons */}
+                      <div>
+                        <div className="flex items-center justify-between text-eyebrow font-medium text-gray-400 uppercase mb-1.5">
+                          <span>Quick Increments</span>
+                          <span>Min: ₹{formatINR(suggestedBid)}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
                           <button
-                            type="submit"
-                            disabled={busy}
-                            className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 disabled:opacity-60 cursor-pointer shadow-sm"
+                            type="button"
+                            disabled={!hasEntryDeposit}
+                            onClick={() => handleQuickBid(quickBid1)}
+                            className={`py-2 px-3 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
+                              !hasEntryDeposit
+                                ? 'bg-white/5 border-white/10 text-gray-500 cursor-not-allowed'
+                                : 'bg-white/10 hover:bg-white/20 border-white/20 text-white cursor-pointer active:scale-95'
+                            }`}
                           >
-                            {busy ? 'Placing bid…' : 'Confirm Bid'}
+                            {!hasEntryDeposit && <span className="text-[10px]">🔒</span>}
+                            +₹{formatINR(quickBid1)}
                           </button>
-                          <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
-                            Bid increments of ₹{formatINR(bidIncrement)}
-                          </p>
-                        </form>
-                      ) : (
-                        <div className="space-y-3">
                           <button
-                            onClick={openBid}
-                            className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                            type="button"
+                            disabled={!hasEntryDeposit}
+                            onClick={() => handleQuickBid(quickBid3)}
+                            className={`py-2 px-3 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
+                              !hasEntryDeposit
+                                ? 'bg-white/5 border-white/10 text-gray-500 cursor-not-allowed'
+                                : 'bg-white/10 hover:bg-white/20 border-white/20 text-white cursor-pointer active:scale-95'
+                            }`}
                           >
-                            <svg className="w-4 h-4 text-gd-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                            Place Bid · ₹{formatINR(suggestedBid)}
+                            {!hasEntryDeposit && <span className="text-[10px]">🔒</span>}
+                            +₹{formatINR(quickBid3)}
                           </button>
-                          <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
-                            Bid increments of ₹{formatINR(bidIncrement)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Requirements or Confirm Action */}
+                    {!isAuthenticated ? (
+                      <div className="space-y-3">
+                        <button
+                          type="button"
+                          onClick={() => navigate('/login', { state: { from: location.pathname } })}
+                          className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                        >
+                          Sign In to Unlock Bidding
+                        </button>
+                        <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
+                          Requires verified collector account
+                        </p>
+                      </div>
+                    ) : !isVerified ? (
+                      <div className="space-y-3">
+                        <div className="rounded-md bg-amber-950/30 border border-amber-500/40 p-3.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1.5 text-eyebrow font-bold text-amber-400 uppercase tracking-wider">
+                              <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                              </svg>
+                              Identity Verification Required
+                            </span>
+                            <span className="text-eyebrow font-bold text-amber-300 uppercase">
+                              KYC Compliance
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-300 leading-relaxed">
+                            Automotive auction compliance requires verified government identity (Aadhaar, PAN, or Passport) before submitting live bids.
                           </p>
                         </div>
-                      )}
 
-                      {/* Demo/test trigger to close auction and test automatic deposit refund */}
-                      <button
-                        type="button"
-                        onClick={handleSimulateEndAuction}
-                        className="w-full text-center text-eyebrow text-gray-400 hover:text-white py-1 transition-colors underline cursor-pointer"
-                        title="Simulate auction completion to trigger immediate deposit refund"
-                      >
-                        Simulate Auction End &amp; Trigger Deposit Refund
-                      </button>
-                    </div>
-                  )
+                        <button
+                          type="button"
+                          onClick={() => setIsKycModalOpen(true)}
+                          className="w-full bg-gd-primary hover:bg-gd-primaryHover text-white text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                        >
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                          </svg>
+                          Complete KYC to Unlock Bidding
+                        </button>
+                        <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
+                          Instant verification · 256-bit encrypted
+                        </p>
+                      </div>
+                    ) : !hasEntryDeposit ? (
+                      <div className="space-y-3">
+                        <div className="rounded-md bg-white/5 border border-gd-lineDark p-3.5 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1.5 text-eyebrow font-bold text-amber-400 uppercase tracking-wider">
+                              <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                              </svg>
+                              Entry Deposit Required
+                            </span>
+                            <span className="text-eyebrow font-bold text-emerald-400 uppercase">
+                              100% Refundable
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-300 leading-relaxed">
+                            A refundable entry fee deposit of <strong className="text-white">₹{formatINR(depositAmount)}</strong> is required to unlock bidding access for this vehicle.
+                          </p>
+                          <div className="flex items-center gap-2 text-eyebrow text-emerald-300 bg-emerald-950/40 border border-emerald-500/30 rounded px-2.5 py-1.5 font-medium">
+                            <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                            </svg>
+                            <span>Automatically refunded to your card upon auction close.</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsDepositModalOpen(true)}
+                          className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                        >
+                          <svg className="w-4 h-4 text-gd-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          Pay ₹{formatINR(depositAmount)} Deposit &amp; Unlock Bidding
+                        </button>
+                        <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
+                          Held in escrow · Auto-refunded on auction close
+                        </p>
+                      </div>
+                    ) : (
+                      <form onSubmit={placeBid} className="space-y-3">
+                        {/* Active deposit indicator */}
+                        <div className="rounded-md bg-emerald-950/40 border border-emerald-500/40 px-3 py-2 flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-1.5 font-bold text-emerald-400">
+                            <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                            </svg>
+                            Bidder Deposit Active (₹{formatINR(deposit.amount || depositAmount)} Held)
+                          </span>
+                          <span className="text-eyebrow text-gray-400 uppercase font-medium">
+                            Refunds on close
+                          </span>
+                        </div>
+
+                        {bidMsg && (
+                          <p
+                            className={`text-xs font-medium ${
+                              bidMsg.includes('leading bid')
+                                ? 'text-gd-success'
+                                : 'text-gd-endingText'
+                            }`}
+                          >
+                            {bidMsg}
+                          </p>
+                        )}
+
+                        <button
+                          type="submit"
+                          disabled={busy}
+                          className="w-full bg-white hover:bg-gray-100 text-gd-ink text-sm font-bold px-4 py-3 rounded-md transition-colors duration-150 disabled:opacity-60 cursor-pointer shadow-sm flex items-center justify-center gap-2"
+                        >
+                          <svg className="w-4 h-4 text-gd-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          {busy
+                            ? 'Placing bid…'
+                            : `Confirm Bid · ₹${formatINR(bidAmount || suggestedBid)}`}
+                        </button>
+                        <p className="text-center text-eyebrow font-medium text-gray-400 uppercase tracking-wider">
+                          Bid increments of ₹{formatINR(bidIncrement)}
+                        </p>
+
+                        {/* Demo/test trigger to close auction and test automatic deposit refund */}
+                        <button
+                          type="button"
+                          onClick={handleSimulateEndAuction}
+                          className="w-full text-center text-eyebrow text-gray-400 hover:text-white py-1 transition-colors underline cursor-pointer"
+                          title="Simulate auction completion to trigger immediate deposit refund"
+                        >
+                          Simulate Auction End &amp; Trigger Deposit Refund
+                        </button>
+                      </form>
+                    )}
+                  </>
                 ) : (
                   <div className="space-y-3">
                     {/* Refund banner when auction is ended and deposit was placed */}
@@ -1163,6 +1417,17 @@ const VehicleDetailContent = ({ id }) => {
         </div>
       </div>
 
+      {/* Image Lightbox */}
+      {lightboxOpen && (
+        <ImageLightbox
+          images={images}
+          activeImage={activeImage}
+          onClose={() => setLightboxOpen(false)}
+          onPrev={lightboxPrev}
+          onNext={lightboxNext}
+        />
+      )}
+
       {/* Bidding Entry Deposit Modal */}
       <BiddingDepositModal
         isOpen={isDepositModalOpen}
@@ -1174,6 +1439,20 @@ const VehicleDetailContent = ({ id }) => {
         auction={auction}
         user={user}
         depositAmount={depositAmount}
+      />
+
+      {/* Identity Verification (KYC) Modal */}
+      <KycModal
+        isOpen={isKycModalOpen}
+        onClose={() => setIsKycModalOpen(false)}
+        onVerified={(data) => {
+          if (updateUser) {
+            updateUser({
+              verificationStatus: 'verified',
+              verificationDetails: data?.verificationDetails,
+            });
+          }
+        }}
       />
     </div>
   );
