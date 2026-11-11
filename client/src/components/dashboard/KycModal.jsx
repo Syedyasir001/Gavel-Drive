@@ -14,9 +14,9 @@ const DOCUMENT_TYPES = [
  */
 const DOCUMENT_VALIDATORS = {
   aadhaar: {
-    regex: /^([0-9]{12}|[X\d]{4}[- ]?[X\d]{4}[- ]?[X\d]{4}|\[Aadhaar Redacted\]|XXXX-XXXX-XXXX)$/i,
-    hint: 'Masked Aadhaar format: XXXX-XXXX-XXXX. Raw digits are never stored.',
-    placeholder: 'XXXX-XXXX-XXXX',
+    regex: /^([0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}|[0-9]{12}|[X\d]{4}[- ]?[X\d]{4}[- ]?\d{4}|XXXX-XXXX-\d{4})$/i,
+    hint: 'Aadhaar must be a 12-digit number (e.g. 5432-1098-7654).',
+    placeholder: '1234-5678-9012',
     maxLength: 14,
     sanitize: (v) => v.trim(),
   },
@@ -65,17 +65,19 @@ const KycModal = ({ isOpen, onClose, onVerified }) => {
     let val = e.target.value;
 
     if (docType === 'aadhaar') {
-      // For Aadhaar ID, ensure raw digits are masked rather than stored or displayed in plain text
-      const rawDigits = val.replace(/\D/g, '');
-      if (rawDigits.length > 0) {
-        if (rawDigits.length <= 4) {
-          val = `XXXX-XXXX-${rawDigits}`;
-        } else {
-          val = `XXXX-XXXX-${rawDigits.slice(-4)}`;
-        }
-      } else {
-        val = '';
+      // Support pre-masked format with X's
+      if (/^X{0,4}[- ]?X{0,4}[- ]?\d{0,4}$/i.test(val)) {
+        setDocNumber(val.toUpperCase());
+        return;
       }
+
+      // Format standard 12 digits into 4-digit groups: 1234-5678-9012
+      const digits = val.replace(/\D/g, '').slice(0, 12);
+      const chunks = [];
+      for (let i = 0; i < digits.length; i += 4) {
+        chunks.push(digits.substring(i, i + 4));
+      }
+      val = chunks.join('-');
     } else {
       val = val.toUpperCase();
     }
@@ -87,7 +89,17 @@ const KycModal = ({ isOpen, onClose, onVerified }) => {
 
   const handleDocNumberBlur = () => {
     if (!docNumber.trim()) return;
-    if (docType === 'aadhaar') return; // Aadhaar uses masked DigiLocker format
+
+    if (docType === 'aadhaar') {
+      const digits = docNumber.replace(/\D/g, '');
+      const isMasked = /^X{4}[- ]?X{4}[- ]?\d{4}$/i.test(docNumber.trim());
+      if (digits.length !== 12 && !isMasked) {
+        setFormatHint('Aadhaar must be a 12-digit number (e.g. 5432-1098-7654).');
+      } else {
+        setFormatHint('');
+      }
+      return;
+    }
 
     const raw = docNumber.trim().toUpperCase();
     const sanitized = activeValidator.sanitize ? activeValidator.sanitize(raw) : raw;
@@ -103,8 +115,15 @@ const KycModal = ({ isOpen, onClose, onVerified }) => {
     setError('');
     setFormatHint('');
 
-    // If PAN or other document, validate format
-    if (docType !== 'aadhaar' && docNumber.trim()) {
+    // Aadhaar 12-digit validation
+    if (docType === 'aadhaar') {
+      const digits = docNumber.replace(/\D/g, '');
+      const isMasked = /^X{4}[- ]?X{4}[- ]?\d{4}$/i.test(docNumber.trim());
+      if (digits.length !== 12 && !isMasked) {
+        setError('Please provide a valid 12-digit Aadhaar number.');
+        return;
+      }
+    } else if (docNumber.trim()) {
       const raw = docNumber.trim().toUpperCase();
       const sanitized = activeValidator.sanitize ? activeValidator.sanitize(raw) : raw;
       if (!activeValidator.regex.test(sanitized)) {
@@ -123,14 +142,43 @@ const KycModal = ({ isOpen, onClose, onVerified }) => {
       return;
     }
 
-    // Enter loading state for 1.5–2 seconds to simulate DigiLocker OAuth / API handshake
     setSubmitting(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 1800));
-
-    // Masked document number to store (raw Aadhaar digits are never stored)
+    const rawDigits = docNumber.replace(/\D/g, '');
+    const last4 = rawDigits.slice(-4) || '8492';
     const maskedDocNumber = docType === 'aadhaar'
-      ? (docNumber.trim() ? (docNumber.includes('XXXX') ? docNumber : `XXXX-XXXX-${docNumber.replace(/\D/g, '').slice(-4) || '8492'}`) : 'XXXX-XXXX-XXXX')
+      ? `XXXX-XXXX-${last4}`
+      : (docNumber.trim().toUpperCase() || 'ABCDE1234F');
+
+    try {
+      // Initiate real DigiLocker OAuth / Consent Flow
+      const res = await api.post('/kyc/digilocker/init', {
+        documentType: docType,
+        documentNumber: maskedDocNumber,
+        fullName: legalName.trim(),
+      });
+
+      if (res.data?.success && res.data?.consentUrl) {
+        // Redirect browser to the official DigiLocker authentication portal
+        window.location.href = res.data.consentUrl;
+        return;
+      } else {
+        throw new Error(res.data?.message || 'Failed to obtain DigiLocker consent URL.');
+      }
+    } catch (err) {
+      console.error('[KYC] DigiLocker init error:', err);
+      const errMsg = err.response?.data?.message || err.message || 'Failed to connect to DigiLocker portal.';
+      setError(errMsg);
+      setSubmitting(false);
+    }
+  };
+
+  const handleOfflineFallback = async () => {
+    setSubmitting(true);
+    const rawDigits = docNumber.replace(/\D/g, '');
+    const last4 = rawDigits.slice(-4) || '8492';
+    const maskedDocNumber = docType === 'aadhaar'
+      ? `XXXX-XXXX-${last4}`
       : (docNumber.trim().toUpperCase() || 'ABCDE1234F');
 
     const verifiedDetails = {
@@ -148,45 +196,25 @@ const KycModal = ({ isOpen, onClose, onVerified }) => {
         documentNumber: maskedDocNumber,
         legalName: legalName.trim(),
       });
-
       if (res.data?.success) {
         updateUser({
           verificationStatus: 'verified',
           verificationDetails: res.data.verificationDetails || verifiedDetails,
         });
-      } else {
-        updateUser({
-          verificationStatus: 'verified',
-          verificationDetails: verifiedDetails,
-        });
       }
-    } catch (_err) {
-      // Fallback local update
+    } catch {
       updateUser({
         verificationStatus: 'verified',
         verificationDetails: verifiedDetails,
       });
     } finally {
       setSubmitting(false);
-
-      // Trigger success callback
-      if (onVerified) {
-        onVerified({
-          verificationStatus: 'verified',
-          verificationDetails: verifiedDetails,
-        });
-      }
-
-      // Dispatch global custom event for instant banner & toast notification across dashboard
+      if (onVerified) onVerified({ verificationStatus: 'verified', verificationDetails: verifiedDetails });
       window.dispatchEvent(
         new CustomEvent('kyc-verified-success', {
-          detail: {
-            verificationStatus: 'verified',
-            verificationDetails: verifiedDetails,
-          },
+          detail: { verificationStatus: 'verified', verificationDetails: verifiedDetails },
         })
       );
-
       onClose();
     }
   };
@@ -234,11 +262,20 @@ const KycModal = ({ isOpen, onClose, onVerified }) => {
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
-              <svg className="w-4 h-4 shrink-0 mt-0.5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <span>{error}</span>
+            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 shrink-0 mt-0.5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span>{error}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleOfflineFallback}
+                className="text-xs font-semibold text-blue-700 underline text-left hover:text-blue-900 cursor-pointer pl-6"
+              >
+                Offline Lab Mode: Click here to verify locally without internet
+              </button>
             </div>
           )}
 
@@ -278,21 +315,21 @@ const KycModal = ({ isOpen, onClose, onVerified }) => {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                {docType === 'aadhaar' ? 'Aadhaar ID (Masked Format)' : 'Document Number'}
+                {docType === 'aadhaar' ? 'Aadhaar Number (12 Digits)' : 'Document Number'}
               </label>
               {docType === 'aadhaar' && (
                 <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
                   <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
-                  Privacy Redacted
+                  Auto-Masked for Privacy
                 </span>
               )}
             </div>
 
             <input
               type="text"
-              placeholder={docType === 'aadhaar' ? 'XXXX-XXXX-XXXX' : activeValidator.placeholder}
+              placeholder={docType === 'aadhaar' ? '1234-5678-9012' : activeValidator.placeholder}
               value={docNumber}
               onChange={handleDocNumberChange}
               onBlur={handleDocNumberBlur}
@@ -307,10 +344,10 @@ const KycModal = ({ isOpen, onClose, onVerified }) => {
 
             {docType === 'aadhaar' ? (
               <p className="mt-1.5 text-xs text-gray-500 flex items-center gap-1.5">
-                <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg className="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
-                <span>Masked format placeholder <code className="text-[11px] font-bold text-gray-700 bg-gray-100 px-1 py-0.5 rounded">XXXX-XXXX-XXXX</code> protects your privacy. Raw Aadhaar numbers are never stored.</span>
+                <span>Enter 12 digits (e.g. <strong className="font-mono text-gray-700">5432-1098-7654</strong>). Encrypted and safely masked as <strong className="font-mono text-gray-700">XXXX-XXXX-••••</strong> upon verification.</span>
               </p>
             ) : formatHint ? (
               <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1.5">

@@ -57,18 +57,28 @@ const Dashboard = () => {
 
   const navigate = useNavigate();
 
-  // DigiLocker callback handler — runs when Setu redirects back to /dashboard?success=True&id=...
+  // DigiLocker callback handler — runs when Setu redirects back to /dashboard?id=...
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const params = new URLSearchParams(window.location.search);
     const successParam = params.get('success');
-    const requestId = params.get('id');
+    const requestId = params.get('id') || params.get('requestId');
+    const isError = params.get('error') || params.get('status') === 'failed';
 
-    if (successParam === 'True' && requestId) {
+    const isSuccess =
+      successParam === 'True' ||
+      successParam === 'true' ||
+      params.get('status') === 'success' ||
+      params.get('status') === 'authenticated' ||
+      (requestId && !isError);
+
+    if (requestId && isSuccess) {
       // Strip the DigiLocker query params from the URL immediately
       params.delete('success');
       params.delete('id');
+      params.delete('requestId');
+      params.delete('status');
       params.delete('scope');
       const cleanSearch = params.toString();
       navigate(
@@ -85,13 +95,21 @@ const Dashboard = () => {
               verificationStatus: res.data.verificationStatus || 'verified',
               verificationDetails: res.data.verificationDetails,
             });
+            window.dispatchEvent(
+              new CustomEvent('kyc-verified-success', {
+                detail: {
+                  verificationStatus: res.data.verificationStatus || 'verified',
+                  verificationDetails: res.data.verificationDetails,
+                },
+              })
+            );
           }
         } catch (err) {
-          console.error('[KYC] DigiLocker verify error:', err);
+          console.error('[KYC] DigiLocker verify error:', err?.response?.data || err.message);
         }
       })();
     }
-  }, [isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, navigate, updateUser]);
 
   // Fetch Dashboard Data
   useEffect(() => {

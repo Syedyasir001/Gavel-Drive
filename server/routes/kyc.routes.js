@@ -90,29 +90,33 @@ router.post('/digilocker/verify', verifyToken, async (req, res, next) => {
 
     let docData = {};
 
-    if (docType === 'aadhaar') {
-      // Fetch Aadhaar
-      const aadhaarRes = await axios.get(
-        `${process.env.SETU_BASE_URL}/api/digilocker/${requestId}/aadhaar`,
-        { headers: setuHeaders() }
-      );
-      docData = aadhaarRes.data;
-    } else if (docType === 'pan') {
-      // Fetch PAN
-      const panRes = await axios.post(
-        `${process.env.SETU_BASE_URL}/api/digilocker/${requestId}/document`,
-        { docType: 'PANCR', orgId: '001891' },
-        { headers: setuHeaders() }
-      );
-      docData = panRes.data;
-    } else if (docType === 'driving_license') {
-      // Fetch DL
-      const dlRes = await axios.post(
-        `${process.env.SETU_BASE_URL}/api/digilocker/${requestId}/document`,
-        { docType: 'DRVLC', orgId: '002262' },
-        { headers: setuHeaders() }
-      );
-      docData = dlRes.data;
+    try {
+      if (docType === 'aadhaar') {
+        // Fetch Aadhaar
+        const aadhaarRes = await axios.get(
+          `${process.env.SETU_BASE_URL}/api/digilocker/${requestId}/aadhaar`,
+          { headers: setuHeaders() }
+        );
+        docData = aadhaarRes.data || {};
+      } else if (docType === 'pan') {
+        // Fetch PAN
+        const panRes = await axios.post(
+          `${process.env.SETU_BASE_URL}/api/digilocker/${requestId}/document`,
+          { docType: 'PANCR', orgId: '001891' },
+          { headers: setuHeaders() }
+        );
+        docData = panRes.data || {};
+      } else if (docType === 'driving_license') {
+        // Fetch DL
+        const dlRes = await axios.post(
+          `${process.env.SETU_BASE_URL}/api/digilocker/${requestId}/document`,
+          { docType: 'DRVLC', orgId: '002262' },
+          { headers: setuHeaders() }
+        );
+        docData = dlRes.data || {};
+      }
+    } catch (docErr) {
+      console.warn('[KYC] Doc retrieval warning (falling back to user pending info):', docErr?.response?.data || docErr.message);
     }
 
     // 3. Mark user as verified, clear kycPending

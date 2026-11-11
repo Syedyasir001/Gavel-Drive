@@ -49,15 +49,21 @@ const Browse = () => {
       setLoading(true);
       try {
         const res = await api.get('/auctions');
-        if (res.data?.success && res.data?.data?.length > 0) {
-          const auctionsWithMake = res.data.data.map((a) => {
-            const makeMatch = MAKES.find((m) => a.car?.title?.includes(m));
-            return { ...a, make: a.make || makeMatch || 'Other' };
+        let backendList = [];
+        if (res.data?.success && Array.isArray(res.data?.data) && res.data.data.length > 0) {
+          backendList = res.data.data.map((a) => {
+            const makeMatch = MAKES.find((m) => a.car?.title?.includes(m) || a.car?.make?.includes(m));
+            return { ...a, make: a.make || a.car?.make || makeMatch || 'Other' };
           });
-          setAuctions(auctionsWithMake);
-        } else {
-          setAuctions(SAMPLE_AUCTIONS);
         }
+
+        // Merge backend auctions with the full sample auction catalog (42 vehicles)
+        const backendIds = new Set(backendList.map((a) => String(a._id)));
+        const combined = [
+          ...backendList,
+          ...SAMPLE_AUCTIONS.filter((s) => !backendIds.has(String(s._id))),
+        ];
+        setAuctions(combined);
       } catch (err) {
         console.warn('API offline or error fetching auctions, using sample data:', err.message);
         setAuctions(SAMPLE_AUCTIONS);
